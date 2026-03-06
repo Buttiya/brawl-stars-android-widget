@@ -33,6 +33,14 @@ enum class Tab {
     Favorites
 }
 
+private data class CoreState(
+    val inputTag: String,
+    val selectedTag: String?,
+    val player: PlayerEntity?,
+    val favorites: List<PlayerEntity>,
+    val widgetCache: WidgetCacheEntity?
+)
+
 class PlayerViewModel(
     private val repository: PlayerRepository
 ) : ViewModel() {
@@ -42,29 +50,41 @@ class PlayerViewModel(
     private val error = MutableStateFlow<String?>(null)
     private val currentTab = MutableStateFlow(Tab.Search)
 
-    val uiState: StateFlow<PlayerUiState> = combine(
+    private val coreState = combine(
         inputTag,
         selectedTag,
         selectedTag.flatMapLatest { tag -> if (tag == null) flowOf(null) else repository.observePlayer(tag) },
         repository.observeFavoritePlayers(),
-        repository.observeWidgetCache(),
-        isLoading,
-        error,
-        currentTab
-    ) { input, selected, player, favorites, widgetCache, loading, err, tab ->
-        val normalized = selected?.let(::normalizeTag)
-        val favorite = normalized != null && favorites.any { it.tag == normalized }
-
-        PlayerUiState(
+        repository.observeWidgetCache()
+    ) { input, selected, player, favorites, widgetCache ->
+        CoreState(
             inputTag = input,
             selectedTag = selected,
             player = player,
             favorites = favorites,
+            widgetCache = widgetCache
+        )
+    }
+
+    val uiState: StateFlow<PlayerUiState> = combine(
+        coreState,
+        isLoading,
+        error,
+        currentTab
+    ) { core, loading, err, tab ->
+        val normalized = core.selectedTag?.let(::normalizeTag)
+        val favorite = normalized != null && core.favorites.any { item -> item.tag == normalized }
+
+        PlayerUiState(
+            inputTag = core.inputTag,
+            selectedTag = core.selectedTag,
+            player = core.player,
+            favorites = core.favorites,
             isFavorite = favorite,
             isLoading = loading,
             error = err,
             currentTab = tab,
-            widgetCache = widgetCache
+            widgetCache = core.widgetCache
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlayerUiState())
 
