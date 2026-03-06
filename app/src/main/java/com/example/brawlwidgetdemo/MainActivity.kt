@@ -8,9 +8,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.example.brawlwidgetdemo.ui.BrawlDemoScreen
 import com.example.brawlwidgetdemo.ui.PlayerViewModel
 import com.example.brawlwidgetdemo.ui.PlayerViewModelFactory
+import com.example.brawlwidgetdemo.widget.RefreshWidgetWorker
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,12 +29,22 @@ class MainActivity : ComponentActivity() {
                 onTagChange = vm::onTagChange,
                 onSearchClick = vm::search,
                 onToggleFavorite = vm::toggleFavorite,
-                onSaveForWidget = vm::saveSelectedProfileForWidget,
-                onRefreshWidget = vm::refreshWidget,
+                onSaveForWidget = {
+                    vm.saveSelectedProfileForWidget()
+                    enqueueWidgetRefresh()
+                },
+                onRefreshWidget = {
+                    enqueueWidgetRefresh()
+                },
                 onTabSelect = vm::setTab,
                 onRefreshFavorites = vm::refreshFavorites,
                 onSelectFavorite = vm::loadFavorite
             )
         }
+    }
+
+    private fun enqueueWidgetRefresh() {
+        val request = OneTimeWorkRequestBuilder<RefreshWidgetWorker>().build()
+        WorkManager.getInstance(this).enqueue(request)
     }
 }

@@ -19,8 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.brawlwidgetdemo.data.db.PlayerEntity
-import java.text.DateFormat
-import java.util.Date
 
 @Composable
 fun BrawlDemoScreen(
@@ -69,18 +67,15 @@ private fun WidgetCacheCard(
     onRefreshWidget: () -> Unit
 ) {
     val cache = state.widgetCache
-    val timeText = cache?.soloNextMapStartAt?.let {
-        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
-    } ?: "TBD"
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Widget cache")
             Text("Solo current: ${cache?.soloCurrentMapName ?: "-"}")
             Text("Solo next: ${cache?.soloNextMapName ?: "TBD"}")
-            Text("Next start: $timeText")
             Text("Saved tag: ${cache?.savedPlayerTag?.let { "#$it" } ?: "Select player"}")
             Text("Saved trophies: ${cache?.savedPlayerTrophies?.toString() ?: "-"}")
+            Text("Saved EXP: ${cache?.savedPlayerExpLevel?.toString() ?: "-"}")
             Text("Icon URL: ${cache?.savedPlayerIconUrl ?: "-"}")
             Button(onClick = onRefreshWidget) {
                 Text("Refresh widget data")
@@ -112,7 +107,7 @@ private fun SearchTab(
         }
     }
 
-    Button(onClick = onSaveForWidget, enabled = state.player != null) {
+    Button(onClick = onSaveForWidget, enabled = state.inputTag.isNotBlank() || state.player != null) {
         Text("Save profile for widget")
     }
 
@@ -174,3 +169,4 @@ private fun PlayerCard(player: PlayerEntity) {
         }
     }
 }
+

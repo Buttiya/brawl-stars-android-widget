@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.brawlwidgetdemo.data.db.PlayerEntity
 import com.example.brawlwidgetdemo.data.db.WidgetCacheEntity
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
+import com.example.brawlwidgetdemo.domain.isTagValid
 import com.example.brawlwidgetdemo.domain.normalizeTag
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -101,12 +102,17 @@ class PlayerViewModel(
         viewModelScope.launch {
             isLoading.value = true
             error.value = null
-            val result = repository.searchPlayer(query)
-            result.onSuccess { tag ->
-                selectedTag.value = tag
-            }.onFailure {
-                error.value = it.message ?: "Ошибка"
-            }
+            runCatching { repository.searchPlayer(query) }
+                .onSuccess { result ->
+                    result.onSuccess { tag ->
+                        selectedTag.value = tag
+                    }.onFailure {
+                        error.value = it.message ?: "Ошибка"
+                    }
+                }
+                .onFailure {
+                    error.value = it.message ?: "Ошибка поиска"
+                }
             isLoading.value = false
         }
     }
@@ -119,7 +125,12 @@ class PlayerViewModel(
     }
 
     fun saveSelectedProfileForWidget() {
-        val tag = selectedTag.value ?: return
+        val tag = selectedTag.value ?: normalizeTag(inputTag.value)
+        if (!isTagValid(tag)) {
+            error.value = "Невалидный тег"
+            return
+        }
+
         viewModelScope.launch {
             isLoading.value = true
             error.value = null

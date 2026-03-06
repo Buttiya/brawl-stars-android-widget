@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.example.brawlwidgetdemo.data.db.AppDatabase
 import com.example.brawlwidgetdemo.data.network.BrawlApiService
 import com.example.brawlwidgetdemo.data.network.NetworkFactory
+import com.example.brawlwidgetdemo.data.network.OfficialBrawlStarsService
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
 
 class BrawlDemoApp : Application() {
@@ -22,11 +23,21 @@ class BrawlDemoApp : Application() {
             .fallbackToDestructiveMigration()
             .build()
 
-        val retrofit = NetworkFactory.createRetrofit()
-        val api = retrofit.create(BrawlApiService::class.java)
+        val primaryApi = NetworkFactory.createPrimaryRetrofit().create(BrawlApiService::class.java)
+        val secondaryApi = NetworkFactory.createSecondaryRetrofit().create(BrawlApiService::class.java)
+
+        val officialApi: OfficialBrawlStarsService? =
+            if (BuildConfig.BRAWL_STARS_API_TOKEN.isBlank()) {
+                null
+            } else {
+                NetworkFactory.createOfficialRetrofit(BuildConfig.BRAWL_STARS_API_TOKEN)
+                    .create(OfficialBrawlStarsService::class.java)
+            }
 
         playerRepository = PlayerRepository(
-            api = api,
+            api = primaryApi,
+            secondaryApi = secondaryApi,
+            officialApi = officialApi,
             playerDao = db.playerDao(),
             snapshotDao = db.snapshotDao(),
             favoriteDao = db.favoriteDao(),

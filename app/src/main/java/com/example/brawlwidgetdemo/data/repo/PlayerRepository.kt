@@ -9,16 +9,20 @@ import com.example.brawlwidgetdemo.data.db.SnapshotDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheEntity
 import com.example.brawlwidgetdemo.data.network.BrawlApiService
+import com.example.brawlwidgetdemo.data.network.OfficialBrawlStarsService
 import com.example.brawlwidgetdemo.domain.isTagValid
 import com.example.brawlwidgetdemo.domain.normalizeTag
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.Flow
+import retrofit2.Response
 import java.io.IOException
 
 class PlayerRepository(
     private val api: BrawlApiService,
+    private val secondaryApi: BrawlApiService,
+    private val officialApi: OfficialBrawlStarsService?,
     private val playerDao: PlayerDao,
     private val snapshotDao: SnapshotDao,
     private val favoriteDao: FavoriteDao,
@@ -75,36 +79,67 @@ class PlayerRepository(
 
     private suspend fun fetchAndCachePlayer(rawTag: String): Result<PlayerEntity> {
         val tag = normalizeTag(rawTag)
-        val response = api.getPlayerGraphs(tag)
-        if (!response.isSuccessful) {
-            return Result.failure(IOException(errorMessageForCode(response.code())))
+
+        val response = requestPlayer(tag)
+        if (response.isSuccessful && response.body() != null) {
+            val player = mapPlayer(tag, response.body()!!)
+            playerDao.upsert(player)
+            insertSnapshotIfChanged(player)
+            return Result.success(player)
         }
 
-        val body = response.body() ?: return Result.failure(IOException("Пустой ответ API"))
-        val player = mapPlayer(tag, body)
+        val official = requestOfficialPlayer(tag)
+        if (official != null) {
+            playerDao.upsert(official)
+            insertSnapshotIfChanged(official)
+            return Result.success(official)
+        }
 
-        playerDao.upsert(player)
-        insertSnapshotIfChanged(player)
-        return Result.success(player)
+        return Result.failure(IOException(errorMessageForCode(response.code())))
+    }
+
+    private suspend fun requestPlayer(tag: String): Response<JsonObject> {
+        val primary = runCatching { api.getPlayerGraphs(tag) }.getOrNull()
+        if (primary?.isSuccessful == true) return primary
+
+        val secondary = runCatching { secondaryApi.getPlayerGraphs(tag) }.getOrNull()
+        if (secondary?.isSuccessful == true) return secondary
+
+        return primary ?: secondary ?: throw IOException("Сервис недоступен")
+    }
+
+    private suspend fun requestOfficialPlayer(tag: String): PlayerEntity? {
+        val service = officialApi ?: return null
+        val response = runCatching { service.getPlayer(tag) }.getOrNull() ?: return null
+        if (!response.isSuccessful) return null
+
+        val body = response.body() ?: return null
+        return mapOfficialPlayer(tag, body)
     }
 
     private suspend fun refreshSoloMapsPart() {
-        val response = api.getEvents()
-        if (!response.isSuccessful) return
-
-        val body = response.body() ?: return
-        val (current, next) = parseSoloEvents(body)
+        val payload = requestEventsBody() ?: return
+        val (current, next) = parseSoloEvents(payload)
 
         val prev = widgetCacheDao.get() ?: emptyWidgetCache()
         widgetCacheDao.upsert(
             prev.copy(
-                soloCurrentMapName = current?.mapName,
-                soloCurrentMapImageUrl = current?.mapImage,
+                soloCurrentMapName = current?.mapName ?: prev.soloCurrentMapName,
+                soloCurrentMapImageUrl = current?.mapImage ?: prev.soloCurrentMapImageUrl,
                 soloNextMapName = next?.mapName ?: "TBD",
-                soloNextMapStartAt = next?.startAt,
                 updatedAt = System.currentTimeMillis()
             )
         )
+    }
+
+    private suspend fun requestEventsBody(): JsonObject? {
+        val first = runCatching { api.getEvents() }.getOrNull()
+        if (first?.isSuccessful == true && first.body() != null) return first.body()
+
+        val second = runCatching { secondaryApi.getEvents() }.getOrNull()
+        if (second?.isSuccessful == true) return second.body()
+
+        return first?.body()
     }
 
     private suspend fun refreshSavedProfilePart(rawTag: String) {
@@ -116,6 +151,7 @@ class PlayerRepository(
             prev.copy(
                 savedPlayerTag = player.tag,
                 savedPlayerTrophies = player.trophies,
+                savedPlayerExpLevel = player.expLevel,
                 savedPlayerIconUrl = iconUrl,
                 updatedAt = System.currentTimeMillis()
             )
@@ -125,27 +161,40 @@ class PlayerRepository(
     private suspend fun resolveIconUrl(iconId: Int?): String? {
         if (iconId == null) return null
 
-        val response = api.getIcons()
-        if (!response.isSuccessful) return null
+        val body = requestIconsBody()
+        if (body != null) {
+            val allIcons = body.getObj("player") ?: body.getObj("profiles") ?: body
+            val entries = allIcons.getArr("regular")
+                ?: allIcons.getArr("list")
+                ?: allIcons.getArr("items")
+                ?: allIcons.getArr("icons")
+                ?: JsonArray()
 
-        val body = response.body() ?: return null
-        val allIcons = body.getObj("player") ?: body.getObj("profiles") ?: body
-        val entries = allIcons.getArr("regular")
-            ?: allIcons.getArr("list")
-            ?: allIcons.getArr("items")
-            ?: allIcons.getArr("icons")
-            ?: JsonArray()
-
-        entries.forEach { raw ->
-            val obj = raw.asObj() ?: return@forEach
-            if (obj.getInt("id") == iconId) {
-                return obj.getStr("imageUrl2")
-                    ?: obj.getStr("imageUrl")
-                    ?: obj.getStr("url")
+            entries.forEach { raw ->
+                val obj = raw.asObj() ?: return@forEach
+                if (obj.getInt("id") == iconId) {
+                    val url = obj.getStr("imageUrl2")
+                        ?: obj.getStr("imageUrl")
+                        ?: obj.getStr("url")
+                    if (!url.isNullOrBlank()) {
+                        return url
+                    }
+                }
             }
         }
 
-        return null
+        // Fallback for cases when /icons is unavailable or icon id is missing in payload.
+        return "https://cdn.brawlify.com/profile-icons/regular/$iconId.png"
+    }
+
+    private suspend fun requestIconsBody(): JsonObject? {
+        val first = runCatching { api.getIcons() }.getOrNull()
+        if (first?.isSuccessful == true && first.body() != null) return first.body()
+
+        val second = runCatching { secondaryApi.getIcons() }.getOrNull()
+        if (second?.isSuccessful == true) return second.body()
+
+        return first?.body()
     }
 
     private suspend fun insertSnapshotIfChanged(player: PlayerEntity) {
@@ -177,22 +226,53 @@ class PlayerRepository(
 
     private fun JsonArray.firstSolo(): SoloMap? {
         forEach { raw ->
-            val event = raw.asObj() ?: return@forEach
-            val mode = event.getObj("mode")
-            val modeName = mode?.getStr("name") ?: event.getStr("mode") ?: event.getStr("gameMode")
-            if (!modeName.orEmpty().contains("solo showdown", ignoreCase = true)) {
+            val root = raw.asObj() ?: return@forEach
+            val event = root.getObj("event") ?: root.getObj("battle") ?: root
+            val slot = root.getInt("slot") ?: event.getInt("slot")
+            val modeName = event.resolveModeName()
+
+            val isSoloByMode = modeName.orEmpty().contains("solo", ignoreCase = true) &&
+                modeName.orEmpty().contains("showdown", ignoreCase = true)
+            val isSoloBySlotFallback = slot == 2
+
+            if (!isSoloByMode && !isSoloBySlotFallback) {
                 return@forEach
             }
 
-            val map = event.getObj("map")
+            val map = event.getObj("map") ?: root.getObj("map")
             return SoloMap(
                 mapName = map?.getStr("name") ?: event.getStr("map") ?: "Unknown",
-                mapImage = map?.getStr("imageUrl") ?: map?.getStr("imageUrl2"),
-                startAt = event.getStr("startTime")?.toLongOrNull()
-                    ?: event.getStr("start")?.toLongOrNull()
+                mapImage = map?.getStr("imageUrl2") ?: map?.getStr("imageUrl") ?: event.getStr("imageUrl")
             )
         }
+
         return null
+    }
+
+    private fun JsonObject.resolveModeName(): String? {
+        return getObj("mode")?.getStr("name")
+            ?: getObj("gameMode")?.getStr("name")
+            ?: getObj("slot")?.getStr("name")
+            ?: getObj("map")?.getObj("gameMode")?.getStr("name")
+            ?: getStr("mode")
+            ?: getStr("gameMode")
+    }
+
+    private fun mapOfficialPlayer(tag: String, payload: JsonObject): PlayerEntity {
+        val club = payload.getObj("club")
+        val icon = payload.getObj("icon")
+
+        return PlayerEntity(
+            tag = (payload.getStr("tag")?.replace("#", "") ?: tag).uppercase(),
+            name = payload.getStr("name"),
+            trophies = payload.getInt("trophies"),
+            highestTrophies = payload.getInt("highestTrophies"),
+            expLevel = payload.getInt("expLevel"),
+            clubTag = club?.getStr("tag")?.replace("#", ""),
+            clubName = club?.getStr("name"),
+            profileIconId = icon?.getInt("id"),
+            lastSyncedAt = System.currentTimeMillis()
+        )
     }
 
     private fun mapPlayer(tag: String, payload: JsonObject): PlayerEntity {
@@ -218,9 +298,9 @@ class PlayerRepository(
         soloCurrentMapName = null,
         soloCurrentMapImageUrl = null,
         soloNextMapName = "TBD",
-        soloNextMapStartAt = null,
         savedPlayerTag = null,
         savedPlayerTrophies = null,
+        savedPlayerExpLevel = null,
         savedPlayerIconUrl = null,
         updatedAt = System.currentTimeMillis()
     )
@@ -234,28 +314,30 @@ class PlayerRepository(
 
 data class SoloMap(
     val mapName: String,
-    val mapImage: String?,
-    val startAt: Long?
+    val mapImage: String?
 )
 
 private fun JsonObject.getObj(key: String): JsonObject? {
     val value = get(key) ?: return null
-    return if (value.isJsonObject) value.asJsonObject else null
+    return runCatching { if (value.isJsonObject) value.asJsonObject else null }.getOrNull()
 }
 
 private fun JsonObject.getArr(key: String): JsonArray? {
     val value = get(key) ?: return null
-    return if (value.isJsonArray) value.asJsonArray else null
+    return runCatching { if (value.isJsonArray) value.asJsonArray else null }.getOrNull()
 }
 
 private fun JsonElement.asObj(): JsonObject? = if (isJsonObject) asJsonObject else null
 
 private fun JsonObject.getStr(key: String): String? {
     val value: JsonElement = get(key) ?: return null
-    return if (value.isJsonNull) null else value.asString
+    if (value.isJsonNull) return null
+    return runCatching { value.asString }.getOrNull()
 }
 
 private fun JsonObject.getInt(key: String): Int? {
     val value: JsonElement = get(key) ?: return null
     return if (value.isJsonNull) null else runCatching { value.asInt }.getOrNull()
 }
+
+

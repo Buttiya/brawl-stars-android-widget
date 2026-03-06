@@ -16,6 +16,9 @@ android {
         versionName = "0.1.0-demo"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val brawlStarsToken = (project.findProperty("BRAWL_STARS_API_TOKEN") as String?) ?: ""
+        buildConfigField("String", "BRAWL_STARS_API_TOKEN", "\"$brawlStarsToken\"")
     }
 
     buildTypes {
@@ -39,6 +42,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

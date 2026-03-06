@@ -25,12 +25,6 @@
         android:layout_height="wrap_content"
         android:text="Next: TBD" />
 
-    <TextView
-        android:id="@+id/widgetNextStart"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Start: TBD" />
-
     <LinearLayout
         android:id="@+id/widgetPlayerSection"
         android:layout_width="match_parent"
@@ -61,6 +55,12 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Trophies: -" />
+
+            <TextView
+                android:id="@+id/widgetPlayerExp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="EXP: -" />
         </LinearLayout>
     </LinearLayout>
 

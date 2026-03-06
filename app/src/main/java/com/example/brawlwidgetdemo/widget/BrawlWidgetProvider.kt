@@ -12,8 +12,6 @@ import androidx.work.WorkManager
 import com.example.brawlwidgetdemo.BrawlDemoApp
 import com.example.brawlwidgetdemo.MainActivity
 import com.example.brawlwidgetdemo.R
-import java.text.DateFormat
-import java.util.Date
 import kotlinx.coroutines.runBlocking
 
 class BrawlWidgetProvider : AppWidgetProvider() {
@@ -50,18 +48,13 @@ class BrawlWidgetProvider : AppWidgetProvider() {
             appWidgetIds.forEach { id ->
                 val views = RemoteViews(context.packageName, R.layout.widget_brawl)
 
-                views.setTextViewText(R.id.widgetCurrentMap, cache?.soloCurrentMapName ?: "-" )
+                views.setTextViewText(R.id.widgetCurrentMap, cache?.soloCurrentMapName ?: "-")
                 views.setTextViewText(R.id.widgetNextMap, cache?.soloNextMapName ?: "TBD")
-                views.setTextViewText(
-                    R.id.widgetNextStart,
-                    cache?.soloNextMapStartAt?.let {
-                        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))
-                    } ?: "TBD"
-                )
 
                 val tag = cache?.savedPlayerTag
                 views.setTextViewText(R.id.widgetPlayerTag, tag?.let { "#$it" } ?: "Select player")
                 views.setTextViewText(R.id.widgetPlayerTrophies, "Trophies: ${cache?.savedPlayerTrophies ?: "-"}")
+                views.setTextViewText(R.id.widgetPlayerExp, "EXP: ${cache?.savedPlayerExpLevel ?: "-"}")
 
                 if (profileBitmap != null) {
                     views.setImageViewBitmap(R.id.widgetProfileIcon, profileBitmap)
@@ -94,3 +87,4 @@ class BrawlWidgetProvider : AppWidgetProvider() {
         }
     }
 }
+
