@@ -1,341 +1,219 @@
-﻿# Brawl Stars Android Widget App: Final Implementation Plan (v1)
+﻿# Brawl Stars Android Widget App: Final Implementation Plan (v3, widget data refined)
 
 ## 1. Product Goal
 
 Собрать Android-приложение с виджетом, которое позволяет:
-1. Искать игроков Brawl Stars по тегу через официальный API.
-2. Хранить и агрегировать данные игроков в локальной БД для быстрого доступа и офлайн-режима.
+1. Искать игроков по тегу через API, зафиксированный в репозитории (`brawlify.js` / BrawlAPI).
+2. Хранить и агрегировать данные в локальной БД (кэш + история).
 3. Создавать свои посты-новости внутри приложения.
 
-Результат v1: стабильный поиск, кэш/история данных, рабочий app widget, полноценный локальный CRUD новостей.
+Результат v1: рабочий поиск игрока по тегу, виджет с картами Solo Showdown и сохраненным профилем игрока, локальный CRUD новостей.
 
 ## 2. Scope and v1 Boundaries
 
 Включено в v1:
-1. Поиск и просмотр профиля игрока по тегу.
-2. Избранные игроки и их фоновое обновление.
-3. История снапшотов статистики игрока.
-4. App Widget для быстрого просмотра выбранного игрока и перехода в приложение.
-5. Локальный модуль новостей (создание/редактирование/удаление/просмотр/фильтр).
+1. Поиск игрока по тегу и просмотр статистики.
+2. Избранные игроки и фоновое обновление.
+3. История snapshots в Room для офлайн-отображения.
+4. Виджет с обязательными полями:
+   - текущая карта в Solo Showdown
+   - следующая карта в Solo Showdown
+   - сохраненный профиль пользователя: `totalTrophies`, `profileIcon`, `playerTag`
+5. Локальная лента новостей и редактор постов (CRUD).
 
 Не включено в v1:
-1. Серверная авторизация пользователей.
-2. Публикация новостей во внешний backend.
-3. Реалтайм-сокеты.
-4. Мультиязычность (только RU/EN по дефолтным ресурсам, без полноценных локализаций).
+1. Облачная синхронизация новостей между устройствами.
+2. Авторизация пользователей.
 
 ## 3. Tech Stack and Architecture
 
-1. Язык и UI:
+1. Android:
    - Kotlin
    - Jetpack Compose
-2. Архитектура:
-   - MVVM
-   - UseCase + Repository pattern
-   - Unidirectional UI state (StateFlow)
-3. Сеть:
-   - Retrofit + OkHttp
-   - Kotlinx Serialization
-4. БД:
-   - Room
-5. DI:
-   - Hilt
-6. Async:
+   - MVVM + Repository + UseCase
    - Coroutines + Flow
-7. Фоновые задачи:
+2. Data:
+   - Retrofit + OkHttp (или Ktor Client)
+   - Room
+   - DataStore (настройки виджета, выбранный профиль)
+3. Background:
    - WorkManager
-8. Виджет:
-   - Glance AppWidget (если ограничение устройства, fallback на RemoteViews)
-9. Логирование/краши:
+4. Widget:
+   - Glance AppWidget (fallback RemoteViews при необходимости)
+5. Логирование:
    - Timber
-   - Firebase Crashlytics (optional but recommended)
 
-Пакетная структура:
-1. `app/`
-2. `core/network/`
-3. `core/database/`
-4. `core/model/`
-5. `feature/player_search/`
-6. `feature/player_detail/`
-7. `feature/favorites/`
-8. `feature/news/`
-9. `feature/widget/`
-10. `domain/`
+## 4. API Contracts (based on `brawlify.js`)
 
-## 4. External API Contracts (Brawl Stars)
+Источники:
+1. [brawlify.js](C:\Codex\brawl-stars-android-widget\brawlify.js)
+2. [README.md](C:\Codex\brawl-stars-android-widget\README.md)
 
-Базовый URL:
-1. `https://api.brawlstars.com/v1/`
+Base URL:
+1. `https://api.brawlapi.com/v1`
 
-Ключевые эндпоинты v1:
-1. `GET /players/{playerTag}`
-2. Опционально: `GET /clubs/{clubTag}` для отображения данных клуба в деталке игрока.
+Header:
+1. `User-Agent: Brawlify.com/app`
 
-Требования к тегу:
-1. В UI принимаем `#XXXX`.
-2. Перед запросом URL-encode `#` -> `%23`.
-3. Нормализация:
-   - trim
-   - uppercase
-   - валидация regexp: `^#[0289PYLQGRJCUV]{3,}$` (допустимый набор символов для Supercell tag alphabet).
+Эндпоинты, используемые в v1:
+1. `GET /graphs/player/{playerTag}` -> данные профиля/статистики игрока.
+2. `GET /events` -> текущие и upcoming события (для карты Solo Showdown).
+3. `GET /icons` -> справочник иконок (разрешение iconId -> URL).
 
-Заголовки:
-1. `Authorization: Bearer <BRAWL_API_TOKEN>`
+Дополнительно доступны (необязательно в MVP UI):
+1. `GET /brawlers`
+2. `GET /maps`
+3. `GET /gamemodes`
+4. `GET /maps/{mapId}`
 
-Timeout/retry:
-1. connect/read timeout: 15s
-2. retry: 1 повтор только для сетевых ошибок (не для 4xx)
+Нормализация тега:
+1. Принимаем `#TAG` в UI.
+2. В API передаем `TAG` (без `#`, uppercase).
 
-HTTP handling:
-1. `200`: успех
-2. `401/403`: проблема токена или доступа (показываем user-facing ошибку + dev log)
-3. `404`: игрок не найден
-4. `429`: превышение лимитов, показываем "повторите позже"
-5. `5xx`: временная ошибка сервера, предлагаем retry
+## 5. Widget Data Contract (mandatory)
 
-## 5. Data Model and DB Schema
+Виджет обязан отображать 2 блока:
 
-### 5.1 Entities
+1. Solo Showdown Maps
+   - `currentMapName`: текущая карта в одиночном столкновении.
+   - `currentMapImageUrl` (если есть в `events`).
+   - `nextMapName`: следующая карта в одиночном столкновении.
+   - `nextMapStartAt` (локальное время старта, если поле есть в API).
+
+2. Saved Player Profile
+   - `playerTag`
+   - `totalTrophies`
+   - `profileIconUrl` (через `/icons` по iconId из данных игрока)
+
+Правила выбора данных:
+1. Профиль для виджета берется из сохраненного пользователем `playerTag`.
+2. Если профиль не выбран, показывать `Select player` + только блок карт.
+3. Если `next` карта недоступна в API, показывать `TBD`.
+
+## 6. Data Model and DB Schema
+
+### 6.1 Entities
 
 1. `players`
    - `tag` TEXT PRIMARY KEY
-   - `name` TEXT
-   - `name_color` TEXT NULL
-   - `icon_id` INTEGER NULL
-   - `trophies` INTEGER
-   - `highest_trophies` INTEGER
-   - `exp_level` INTEGER
-   - `club_tag` TEXT NULL
-   - `club_name` TEXT NULL
-   - `last_synced_at` INTEGER (epoch millis)
+   - `name` TEXT NULL
+   - `trophies` INTEGER NULL
+   - `profile_icon_id` INTEGER NULL
+   - `last_synced_at` INTEGER
 
 2. `player_stats_snapshots`
    - `id` INTEGER PRIMARY KEY AUTOINCREMENT
-   - `player_tag` TEXT (FK -> players.tag)
-   - `trophies` INTEGER
-   - `highest_trophies` INTEGER
-   - `exp_level` INTEGER
+   - `player_tag` TEXT
+   - `trophies` INTEGER NULL
    - `captured_at` INTEGER
-   - Индекс: (`player_tag`, `captured_at` DESC)
 
 3. `favorites`
-   - `player_tag` TEXT PRIMARY KEY (FK -> players.tag)
+   - `player_tag` TEXT PRIMARY KEY
    - `created_at` INTEGER
-   - `notify_updates` INTEGER (0/1, default 0)
 
-4. `news_posts`
+4. `widget_cache`
+   - `id` INTEGER PRIMARY KEY CHECK(id = 1)
+   - `solo_current_map_name` TEXT NULL
+   - `solo_current_map_image_url` TEXT NULL
+   - `solo_next_map_name` TEXT NULL
+   - `solo_next_map_start_at` INTEGER NULL
+   - `saved_player_tag` TEXT NULL
+   - `saved_player_trophies` INTEGER NULL
+   - `saved_player_icon_url` TEXT NULL
+   - `updated_at` INTEGER
+
+5. `news_posts`
    - `id` INTEGER PRIMARY KEY AUTOINCREMENT
    - `title` TEXT
    - `content` TEXT
    - `category` TEXT
    - `created_at` INTEGER
    - `updated_at` INTEGER
-   - `is_pinned` INTEGER (0/1, default 0)
+   - `is_pinned` INTEGER DEFAULT 0
 
-### 5.2 Room DAOs
+## 7. Domain and Data Flow
 
-1. `PlayerDao`
-   - `getPlayer(tag)`
-   - `upsertPlayer(player)`
-   - `observePlayer(tag): Flow<PlayerEntity?>`
+Use cases:
+1. `SearchPlayerByTagUseCase`
+2. `RefreshFavoritesUseCase`
+3. `RefreshWidgetSoloMapsUseCase`
+   - получает `/events`
+   - фильтрует только Solo Showdown
+   - выбирает текущую и следующую карту
+   - пишет в `widget_cache`
+4. `RefreshWidgetSavedProfileUseCase`
+   - берет `saved_player_tag`
+   - обновляет игрока через `/graphs/player/{tag}`
+   - обогащает иконкой через `/icons`
+   - пишет `trophies/icon/tag` в `widget_cache`
+5. `Create/Update/DeleteNewsPostUseCase`
 
-2. `SnapshotDao`
-   - `insertSnapshot(snapshot)`
-   - `getLatestSnapshots(tag, limit)`
-   - `getLastSnapshot(tag)`
+## 8. UI and Widget Behavior
 
-3. `FavoritesDao`
-   - `getAllFavorites(): Flow<List<FavoriteEntity>>`
-   - `upsertFavorite(favorite)`
-   - `deleteFavorite(tag)`
-   - `isFavorite(tag): Flow<Boolean>`
+Экраны приложения:
+1. Search
+2. Player Detail
+3. Favorites
+4. News Feed
+5. News Editor
 
-4. `NewsDao`
-   - `observeNews(filter): Flow<List<NewsPostEntity>>`
-   - `getNewsById(id)`
-   - `insertNews(post)`
-   - `updateNews(post)`
-   - `deleteNews(id)`
+Виджет:
+1. Верхний блок: `Solo Showdown` текущая и следующая карта.
+2. Нижний блок: сохраненный профиль (`tag`, `total trophies`, `profile icon`).
+3. Tap по профилю -> открывает `Player Detail`.
+4. Кнопка refresh -> запускает one-time worker на обновление карт и профиля.
 
-## 6. Domain Layer (Use Cases)
+## 9. Validation, Reliability, Security
 
-1. `SearchPlayerUseCase(tag)`
-   - валидация тега
-   - загрузка кэша
-   - запрос в API
-   - upsert в `players`
-   - запись snapshot при изменении статистики
+Validation:
+1. Тег: trim + uppercase + удаление `#`.
+2. Допустимые символы: `^[0289PYLQGRJCUV]{3,}$`.
 
-2. `RefreshFavoritePlayersUseCase()`
-   - загрузка всех избранных
-   - последовательный запрос API с throttling (например delay 300-500ms)
-   - обновление players + snapshots
+Reliability:
+1. Таймауты: 15s.
+2. Retry: 1 повтор для сетевых ошибок.
+3. На ошибке сети виджет показывает last-known cached данные.
 
-3. `ToggleFavoriteUseCase(tag)`
+Security:
+1. Для текущего API bearer token не требуется.
+2. Не логировать персональные данные сверх `playerTag`.
 
-4. `GetPlayerHistoryUseCase(tag, limit)`
+## 10. Testing Plan
 
-5. `CreateNewsPostUseCase(input)`
+Unit:
+1. Tag normalization/validation.
+2. Парсинг `/events` -> current/next Solo Showdown.
+3. Маппинг iconId -> iconUrl через `/icons`.
 
-6. `UpdateNewsPostUseCase(input)`
+Integration:
+1. Обновление `widget_cache` из API.
+2. Виджет читает данные из `widget_cache` при офлайне.
+3. Search + save profile + widget render.
 
-7. `DeleteNewsPostUseCase(id)`
+UI:
+1. Выбор профиля для виджета.
+2. Отображение текущей/следующей Solo карты.
+3. Отображение кубков/иконки/тега сохраненного профиля.
 
-8. `GetNewsFeedUseCase(filter)`
+## 11. Delivery Milestones
 
-## 7. UI/UX Specification
+1. Week 1: skeleton + Room + network layer.
+2. Week 2: player search + save profile.
+3. Week 3: widget maps/profile data pipeline.
+4. Week 4: widget UI + refresh actions.
+5. Week 5: news module.
+6. Week 6: tests + stabilization.
 
-## 7.1 Screens
+## 12. Definition of Done
 
-1. Search Screen
-   - поле тега
-   - кнопка "Найти"
-   - блок recent searches (до 5 последних)
-   - error/success states
+1. Виджет показывает текущую и следующую Solo Showdown карту.
+2. Виджет показывает сохраненный профиль: `playerTag`, `totalTrophies`, `profileIcon`.
+3. При отсутствии сети виджет использует последний валидный кэш.
+4. Поиск игрока и сохранение профиля работают стабильно.
+5. CRUD новостей работает.
 
-2. Player Detail Screen
-   - имя, тег, трофеи, клуб
-   - статус "обновлено X мин назад"
-   - кнопка "В избранное"
-   - мини-граф прогресса (из snapshots, v1 можно list-based trend)
+## 13. Assumptions
 
-3. Favorites Screen
-   - список избранных игроков
-   - pull-to-refresh
-   - индикатор изменения трофеев с прошлого snapshot
-
-4. News Feed Screen
-   - список постов
-   - фильтр по категории
-   - pinned posts сверху
-
-5. News Editor Screen
-   - поля: title, content, category
-   - валидация
-   - create/update mode
-
-## 7.2 Widget Behavior
-
-1. Виджет отображает:
-   - ник
-   - тег
-   - трофеи
-   - время обновления
-2. Источник:
-   - последний выбранный игрок (из DataStore)
-   - fallback: первый избранный
-3. Действия:
-   - tap по карточке: открыть `PlayerDetailScreen`
-   - кнопка refresh: инициировать background refresh
-4. Обновление:
-   - при ручном refresh
-   - при успешном обновлении favorite worker
-   - периодический update через WorkManager (с учетом ограничений Android)
-
-## 8. Repositories and Data Flow
-
-1. `PlayerRepository`
-   - `observePlayer(tag): Flow<Player>`
-   - `searchAndSync(tag): Result<Player>`
-   - `refreshFavorites(): Result<Unit>`
-
-2. `NewsRepository`
-   - `observeNews(filter): Flow<List<NewsPost>>`
-   - `create(postInput)`
-   - `update(postInput)`
-   - `delete(id)`
-
-3. `WidgetRepository`
-   - `getSelectedTag()`
-   - `setSelectedTag(tag)`
-   - `getWidgetPlayer(): Flow<Player?>`
-
-Поток поиска:
-1. UI -> ViewModel (`submitTag`)
-2. ViewModel -> `SearchPlayerUseCase`
-3. UseCase -> Repo (cache + remote)
-4. Repo -> Room update
-5. Room Flow -> UI state update
-6. Widget refresh trigger if selected tag equals searched tag
-
-## 9. Error Handling and Validation
-
-1. Ошибки делим на:
-   - ValidationError
-   - NetworkError
-   - ApiError(code)
-   - UnknownError
-2. User messages:
-   - invalid tag -> "Неверный тег игрока"
-   - 404 -> "Игрок не найден"
-   - 429 -> "Слишком много запросов, попробуйте позже"
-   - network timeout -> "Проблема сети"
-3. Editor validations:
-   - title: 3..120 символов
-   - content: 10..5000 символов
-   - category: enum (`GENERAL`, `PATCH`, `ESPORTS`, `GUIDE`)
-
-## 10. Security and Config
-
-1. Токен API хранить:
-   - `local.properties` -> `BRAWL_API_TOKEN`
-   - маппинг в `BuildConfig` на этапе сборки
-2. Никогда не коммитить token.
-3. Добавить `networkSecurityConfig` только если потребуется custom policy.
-4. Логи не должны печатать полный токен.
-
-## 11. Background Jobs
-
-1. `FavoritesRefreshWorker`
-   - периодический запуск: каждые 6 часов (минимум под ограничения платформы)
-   - условия: сеть подключена
-   - при успехе: обновить widget
-2. `OneTimePlayerRefreshWorker`
-   - ручной refresh из widget
-
-## 12. Testing Plan
-
-Unit tests:
-1. Tag validation.
-2. SearchPlayerUseCase (success, 404, 429, timeout).
-3. Snapshot creation logic (создается только при изменении показателей).
-4. News use cases validations.
-
-Integration tests:
-1. Repo: cache-first then network update.
-2. Favorites refresh updates multiple players.
-3. News CRUD in Room.
-
-UI tests:
-1. Search flow -> detail open.
-2. Add/remove favorite.
-3. Create/edit/delete news post.
-
-Manual QA:
-1. Widget tap opens expected screen.
-2. Offline open shows cached player.
-3. API error banners корректно отображаются.
-
-## 13. Delivery Milestones
-
-1. M1 (Week 1): project skeleton, DI, navigation, basic screens stubs.
-2. M2 (Week 2): player search + detail + API integration.
-3. M3 (Week 3): Room cache + favorites + snapshots + workers.
-4. M4 (Week 4): widget implementation.
-5. M5 (Week 5): news module CRUD + filters.
-6. M6 (Week 6): tests + stabilization + release build.
-
-## 14. Acceptance Criteria (Definition of Done)
-
-1. Пользователь может найти игрока по тегу и увидеть актуальные данные.
-2. После перезапуска приложения данные последнего игрока доступны из БД.
-3. Избранные игроки автоматически обновляются в фоне.
-4. Виджет показывает выбранного/избранного игрока и открывает детали по нажатию.
-5. Пользователь может создать, отредактировать и удалить новостной пост.
-6. Основные тесты (unit + integration critical path) проходят в CI.
-
-## 15. Assumptions
-
-1. Используется официальный Brawl Stars API token с разрешенным IP.
-2. В v1 новости локальные (без общего облачного фида между устройствами).
-3. Для графика прогресса допускается упрощенное отображение без внешней chart-библиотеки.
+1. `/events` содержит признак режима для фильтрации Solo Showdown.
+2. `/graphs/player/{tag}` содержит поле, достаточное для `totalTrophies` и `iconId`.
+3. Если структура API отличается, маппинг фиксируется в адаптере без изменения UI-контракта виджета.
