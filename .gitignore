@@ -1,0 +1,17 @@
+# Local SDK/JDK and local machine config
+android-sdk/
+jdk-17*/
+local.properties
+
+# Gradle caches and build outputs
+.gradle/
+build/
+**/build/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
