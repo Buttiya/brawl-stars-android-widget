@@ -1,43 +1,55 @@
 # Brawl Stars Android Widget Demo
 
-Демо Android-приложения: поиск игрока по тегу + виджет с текущей и будущей картой выбранного режима.
+Android-приложение на Kotlin/Compose с поиском игрока по тегу, избранным и домашним виджетом с текущей/следующей картой выбранного режима.
 
-## Что реализовано
-- Поиск игрока по тегу (`#TAG` или `TAG`).
-- Нормализация/валидация тега.
-- Локальный кэш в Room (`players`, `player_stats_snapshots`, `favorites`, `widget_cache`).
-- Выбор режима отслеживания для виджета (Showdown/Gem Grab/Brawl Ball/Knockout/Heist/Bounty/Hot Zone).
-- Showdown-группировка: solo/duo/trio считаются одним режимом.
+## Актуальный функционал
+- Поиск игрока по тегу (`#TAG` или `TAG`) с нормализацией и валидацией.
+- Сохранение игроков в локальную БД (Room) + история изменений (`player_stats_snapshots`).
+- Избранные игроки: добавление/удаление, массовое обновление.
+- Выбор режима для виджета:
+  - `Showdown` (solo/duo/trio объединены)
+  - `Gem Grab`
+  - `Brawl Ball`
+  - `Knockout`
+  - `Bounty`
+  - `Hot Zone`
 - Виджет показывает:
   - текущую карту выбранного режима,
-  - следующую карту (upcoming/predicted),
-  - иконку режима перед будущей картой,
-  - сохранённый профиль (tag/trophies/EXP/icon).
-- Обновление виджета через WorkManager.
+  - следующую карту,
+  - иконку следующего режима,
+  - сохранённый профиль (`name/tag`, `trophies`, `EXP`, `icon`).
+- Ручное обновление виджета кнопкой `Refresh` (через `WorkManager`).
 
-## API
-Источник: `https://api.brawlapi.com`.
+## Как работает загрузка данных
+1. Профиль игрока запрашивается из `https://api.brawlapi.com/v1/graphs/player/{tag}`.
+2. Если endpoint недоступен (частый `404`), используется fallback на официальный API Brawl Stars (`https://api.brawlstars.com/v1/players/%23{tag}`), если задан токен.
+3. Карты/режимы для виджета берутся из:
+   - `GET /v1/events`
+   - `GET /v1/gamemodes`
+4. Если в `events` нет `upcoming` для выбранного режима, используется predicted fallback с `https://brawlify.com/events`.
 
-Используемые endpoints:
-- `GET /v1/events`
-- `GET /v1/gamemodes`
-- `GET /v1/icons`
-- `GET /v1/graphs/player/{tag}` (legacy route, часто возвращает 404)
+## Требования
+- JDK 17
+- Android SDK (compile/target SDK 35)
+- `minSdk = 26`
 
-`v2` в официальной документации сейчас предназначен для static/raw game files (`/v2/raw/...`) и не даёт live event rotation.
-Поэтому будущие карты берутся из `/v1/events`, а если `upcoming` пустой, используется predicted fallback из `https://brawlify.com/events`.
+## Настройка официального API (опционально, но рекомендуется)
+Без токена поиск игрока может не работать для части тегов из-за ограничений `brawlapi` v1.
 
-## Ограничения
-- `v1` помечен как deprecated и может быть удалён.
-- Для многих тегов `GET /v1/graphs/player/{tag}` возвращает `404`; в этом случае приложение сохраняет локальный fallback-профиль по тегу, чтобы не ломались UI/избранное/виджет.
+Добавьте токен одним из способов:
+1. В `gradle.properties`:
+
+```properties
+BRAWL_STARS_API_TOKEN=your_token_here
+```
+
+2. Или через переменную окружения:
+
+```powershell
+$env:BRAWL_STARS_API_TOKEN="your_token_here"
+```
 
 ## Локальная сборка
-Требуется:
-- JDK 17
-- Android SDK (platform-tools, platform 35, build-tools)
-
-Сборка:
-
 ```powershell
 .\gradlew.bat assembleDebug
 ```
@@ -49,3 +61,14 @@ APK:
 ```powershell
 .\android-sdk\platform-tools\adb.exe install -r app\build\outputs\apk\debug\app-debug.apk
 ```
+
+## Коротко по архитектуре
+- UI: Jetpack Compose + `ViewModel`
+- Data: Retrofit/OkHttp + Room
+- Фоновые задачи: WorkManager
+- Источник правды для виджета: таблица `widget_cache`
+
+## Ограничения
+- `api.brawlapi.com/v1` помечен как deprecated и может менять поведение.
+- Без `BRAWL_STARS_API_TOKEN` часть профилей будет недоступна.
+- Predicted fallback с `brawlify.com/events` основан на парсинге HTML, поэтому чувствителен к изменениям верстки сайта.
