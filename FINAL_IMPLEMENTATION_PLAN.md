@@ -1,220 +1,221 @@
-﻿# Brawl Stars Android Widget App: Final Implementation Plan (v3, widget data refined)
+﻿# Brawl Stars Android Widget App: Implementation Plan (v4, Clubs & Families)
 
 ## 1. Product Goal
 
-Собрать Android-приложение с виджетом, которое позволяет:
-1. Искать игроков по тегу через API, зафиксированный в репозитории (`brawlify.js` / BrawlAPI).
-2. Хранить и агрегировать данные в локальной БД (кэш + история).
-3. Создавать свои посты-новости внутри приложения.
+Расширить приложение новой вкладкой `Clubs`, где пользователь сможет:
+1. Искать клубы по тегу и сохранять их статистику.
+2. Просматривать сравнение клубов по силе, составу, активности и общим кубкам.
+3. Проходить верификацию участника/президента клуба.
+4. При подтвержденной роли президента предлагать другим клубам объединение в семейство.
+5. Получать клубные сообщения и новости.
 
-Результат v1: рабочий поиск игрока по тегу, виджет с картами Solo Showdown и сохраненным профилем игрока, локальный CRUD новостей.
+Демо-версия: без централизованного backend-сервера, обновление данных только вручную через кнопку `Refresh`.
 
-## 2. Scope and v1 Boundaries
+## 2. Scope and Boundaries
 
-Включено в v1:
-1. Поиск игрока по тегу и просмотр статистики.
-2. Избранные игроки и фоновое обновление.
-3. История snapshots в Room для офлайн-отображения.
-4. Виджет с обязательными полями:
-   - текущая карта в Solo Showdown
-   - следующая карта в Solo Showdown
-   - сохраненный профиль пользователя: `totalTrophies`, `profileIcon`, `playerTag`
-5. Локальная лента новостей и редактор постов (CRUD).
+### 2.1 Included in Demo (MVP)
+1. Вкладка `Clubs` с поиском клуба по тегу.
+2. Сохранение клубов и их snapshots в локальной БД.
+3. Ручное обновление статистики (`Refresh`) без фоновой синхронизации.
+4. Локальная верификация пользователя (участник/президент) в пределах устройства.
+5. Локальный сценарий "предложить объединение в семейство" (черновики предложений).
+6. Экран семейств клубов с сравнением:
+   - суммарные кубки;
+   - число участников с высоким рангом;
+   - активность (по доступным признакам);
+   - условная "сила" клуба (расчетный рейтинг).
+7. Сообщения клуба (локальные объявления президента для подтвержденных участников).
+8. Существующий функционал карт, будущих карт и рекомендаций по лучшим персонажам.
+9. Раздел советов + блок `Interesting Ideas` с наградами за квесты/клубные баллы.
 
-Не включено в v1:
-1. Облачная синхронизация новостей между устройствами.
-2. Авторизация пользователей.
+### 2.2 Deferred to Production
+1. Централизованный сервер семейств/сообщений/новостей.
+2. Межустройственная синхронизация аккаунта и статусов верификации.
+3. Push-уведомления в реальном времени.
+4. Модерация и аудит действий президентов.
 
-## 3. Tech Stack and Architecture
+## 3. Core Functional Requirements
 
-1. Android:
-   - Kotlin
-   - Jetpack Compose
-   - MVVM + Repository + UseCase
-   - Coroutines + Flow
-2. Data:
-   - Retrofit + OkHttp (или Ktor Client)
-   - Room
-   - DataStore (настройки виджета, выбранный профиль)
-3. Background:
-   - WorkManager
-4. Widget:
-   - Glance AppWidget (fallback RemoteViews при необходимости)
-5. Логирование:
-   - Timber
+1. `Club Search`: ввод `#TAG` или `TAG`, валидация, загрузка данных клуба.
+2. `Club Save`: добавление клуба в локальную коллекцию с историей snapshots.
+3. `Verification`:
+   - пользователь подтверждает связь с клубом;
+   - для роли президента требуется отдельное подтверждение (для демо - локальная схема).
+4. `Family Proposal`:
+   - только подтвержденный президент может создать предложение;
+   - предложения сохраняются локально со статусом (`draft`, `sent`, `accepted`, `declined`).
+5. `Family Analytics`:
+   - сравнение клубов внутри семейства по ключевым метрикам;
+   - рейтинг "сильнее/слабее" на базе прозрачной формулы.
+6. `Club Messages`:
+   - президент публикует оповещение;
+   - подтвержденные участники клуба видят сообщения.
+7. `Maps and Recommendations`:
+   - текущие/будущие карты;
+   - лучшие персонажи для карт;
+   - советы для участников/президентов.
+8. `Interesting Ideas and Rewards`:
+   - карточки с идеями/квестами;
+   - начисление наградных баллов по событию (в демо - локально).
 
-## 4. API Contracts (based on `brawlify.js`)
+## 4. Demo vs Production Architecture
 
-Источники:
-1. [brawlify.js](C:\Codex\brawl-stars-android-widget\brawlify.js)
-2. [README.md](C:\Codex\brawl-stars-android-widget\README.md)
+### 4.1 Demo Architecture
+1. `Single Device First`: источник правды - локальная Room БД.
+2. Данные клубов и событий подтягиваются по API только по `Refresh`.
+3. Верификация и сообщения работают локально, без внешнего сервера.
 
-Base URL:
-1. `https://api.brawlapi.com/v1`
+### 4.2 Production Target Architecture
+1. `Backend API` для пользователей, клубов, семейств, сообщений и новостей.
+2. `Auth + Role Service` для подтверждения президента.
+3. `Sync Layer` для двусторонней синхронизации и конфликт-резолюции.
+4. `Notification Service` для клубных объявлений и ответов на предложения.
 
-Header:
-1. `User-Agent: Brawlify.com/app`
+## 5. Data Model (Room, Demo)
 
-Эндпоинты, используемые в v1:
-1. `GET /graphs/player/{playerTag}` -> данные профиля/статистики игрока.
-2. `GET /events` -> текущие и upcoming события (для карты Solo Showdown).
-3. `GET /icons` -> справочник иконок (разрешение iconId -> URL).
-
-Дополнительно доступны (необязательно в MVP UI):
-1. `GET /brawlers`
-2. `GET /maps`
-3. `GET /gamemodes`
-4. `GET /maps/{mapId}`
-
-Нормализация тега:
-1. Принимаем `#TAG` в UI.
-2. В API передаем `TAG` (без `#`, uppercase).
-
-## 5. Widget Data Contract (mandatory)
-
-Далее взят конкретный пример - одиночное столкновение, но пользователь сможет выбирать какой режим он хочет отслеживать.
-Виджет обязан отображать 2 блока:
-
-1. Solo Showdown Maps
-   - `currentMapName`: текущая карта в одиночном столкновении.
-   - `currentMapImageUrl` (если есть в `events`).
-   - `nextMapName`: следующая карта в одиночном столкновении.
-   - `nextMapStartAt` (локальное время старта, если поле есть в API).
-
-2. Saved Player Profile
-   - `playerTag`
-   - `totalTrophies`
-   - `profileIconUrl` (через `/icons` по iconId из данных игрока)
-
-Правила выбора данных:
-1. Профиль для виджета берется из сохраненного пользователем `playerTag`.
-2. Если профиль не выбран, показывать `Select player` + только блок карт.
-3. Если `next` карта недоступна в API, показывать `TBD`.
-
-## 6. Data Model and DB Schema
-
-### 6.1 Entities
-
-1. `players`
+1. `clubs`
    - `tag` TEXT PRIMARY KEY
-   - `name` TEXT NULL
-   - `trophies` INTEGER NULL
-   - `profile_icon_id` INTEGER NULL
+   - `name` TEXT
+   - `description` TEXT NULL
+   - `total_trophies` INTEGER NULL
+   - `member_count` INTEGER NULL
+   - `president_name` TEXT NULL
    - `last_synced_at` INTEGER
 
-2. `player_stats_snapshots`
+2. `club_members_snapshots`
    - `id` INTEGER PRIMARY KEY AUTOINCREMENT
-   - `player_tag` TEXT
-   - `trophies` INTEGER NULL
+   - `club_tag` TEXT
    - `captured_at` INTEGER
+   - `payload_json` TEXT
 
-3. `favorites`
-   - `player_tag` TEXT PRIMARY KEY
+3. `user_verifications`
+   - `id` INTEGER PRIMARY KEY CHECK(id = 1)
+   - `user_tag` TEXT NULL
+   - `club_tag` TEXT NULL
+   - `role` TEXT NULL (`member` | `president`)
+   - `status` TEXT NOT NULL (`pending` | `verified` | `rejected`)
+   - `verified_at` INTEGER NULL
+
+4. `club_families`
+   - `id` INTEGER PRIMARY KEY AUTOINCREMENT
+   - `family_name` TEXT
+   - `created_by_club_tag` TEXT
    - `created_at` INTEGER
 
-4. `widget_cache`
-   - `id` INTEGER PRIMARY KEY CHECK(id = 1)
-   - `solo_current_map_name` TEXT NULL
-   - `solo_current_map_image_url` TEXT NULL
-   - `solo_next_map_name` TEXT NULL
-   - `solo_next_map_start_at` INTEGER NULL
-   - `saved_player_tag` TEXT NULL
-   - `saved_player_trophies` INTEGER NULL
-   - `saved_player_icon_url` TEXT NULL
+5. `family_clubs`
+   - `family_id` INTEGER
+   - `club_tag` TEXT
+   - PRIMARY KEY (`family_id`, `club_tag`)
+
+6. `family_merge_proposals`
+   - `id` INTEGER PRIMARY KEY AUTOINCREMENT
+   - `from_club_tag` TEXT
+   - `to_club_tag` TEXT
+   - `family_id` INTEGER NULL
+   - `message` TEXT
+   - `status` TEXT (`draft` | `sent` | `accepted` | `declined`)
+   - `created_at` INTEGER
    - `updated_at` INTEGER
 
-5. `news_posts`
+7. `club_messages`
    - `id` INTEGER PRIMARY KEY AUTOINCREMENT
+   - `club_tag` TEXT
+   - `author_role` TEXT
    - `title` TEXT
    - `content` TEXT
-   - `category` TEXT
    - `created_at` INTEGER
-   - `updated_at` INTEGER
-   - `is_pinned` INTEGER DEFAULT 0
+   - `visibility` TEXT (`verified_members`)
 
-## 7. Domain and Data Flow
+8. `reward_events`
+   - `id` INTEGER PRIMARY KEY AUTOINCREMENT
+   - `club_tag` TEXT
+   - `user_tag` TEXT
+   - `reason` TEXT (`quest` | `president_points`)
+   - `points` INTEGER
+   - `created_at` INTEGER
 
-Use cases:
-1. `SearchPlayerByTagUseCase`
-2. `RefreshFavoritesUseCase`
-3. `RefreshWidgetSoloMapsUseCase`
-   - получает `/events`
-   - фильтрует только Solo Showdown
-   - выбирает текущую и следующую карту
-   - пишет в `widget_cache`
-4. `RefreshWidgetSavedProfileUseCase`
-   - берет `saved_player_tag`
-   - обновляет игрока через `/graphs/player/{tag}`
-   - обогащает иконкой через `/icons`
-   - пишет `trophies/icon/tag` в `widget_cache`
-5. `Create/Update/DeleteNewsPostUseCase`
+## 6. Key Use Cases
 
-## 8. UI and Widget Behavior
+1. `SearchClubByTagUseCase`
+2. `SaveClubUseCase`
+3. `RefreshClubStatsUseCase`
+4. `VerifyUserRoleUseCase`
+5. `CreateFamilyProposalUseCase`
+6. `RespondFamilyProposalUseCase`
+7. `BuildFamilyComparisonUseCase`
+8. `PublishClubMessageUseCase`
+9. `GetVerifiedClubFeedUseCase`
+10. `AssignRewardPointsUseCase`
 
-Экраны приложения:
-1. Search
-2. Player Detail
-3. Favorites
-4. News Feed
-5. News Editor
+## 7. UI Plan
 
-Виджет:
-1. Верхний блок: `Solo Showdown` текущая и следующая карта.
-2. Нижний блок: сохраненный профиль (`tag`, `total trophies`, `profile icon`).
-3. Tap по профилю -> открывает `Player Detail`.
-4. Кнопка refresh -> запускает one-time worker на обновление карт и профиля.
+1. `Clubs Tab`
+   - поиск и карточка клуба;
+   - кнопки `Save` и `Refresh`;
+   - история изменений.
+2. `Verification Screen`
+   - текущий статус;
+   - подтверждение роли участника/президента.
+3. `Family Screen`
+   - список семейства;
+   - сравнение клубов;
+   - входящие/исходящие предложения.
+4. `Club Messages Screen`
+   - лента объявлений клуба;
+   - создание объявления (только президент).
+5. `Ideas & Rewards Screen`
+   - советы;
+   - интересные идеи;
+   - награды за квесты/баллы от президента.
 
-## 9. Validation, Reliability, Security
+## 8. Security and Validation
 
-Validation:
-1. Тег: trim + uppercase + удаление `#`.
-2. Допустимые символы: `^[0289PYLQGRJCUV]{3,}$`.
+1. Нормализация тегов: trim, uppercase, удаление `#`.
+2. Разрешенные символы тегов: `^[0289PYLQGRJCUV]{3,}$`.
+3. Гейт прав:
+   - создание предложений семейства и публикация клубных сообщений только для `verified president`.
+4. Логирование:
+   - без персональных данных сверх `tag`, `clubTag`, `role`.
 
-Reliability:
-1. Таймауты: 15s.
-2. Retry: 1 повтор для сетевых ошибок.
-3. На ошибке сети виджет показывает last-known cached данные.
-
-Security:
-1. Для текущего API bearer token не требуется.
-2. Не логировать персональные данные сверх `playerTag`.
-
-## 10. Testing Plan
+## 9. Testing Plan
 
 Unit:
-1. Tag normalization/validation.
-2. Парсинг `/events` -> current/next Solo Showdown.
-3. Маппинг iconId -> iconUrl через `/icons`.
+1. Валидация тегов клуба.
+2. Проверка ролевых ограничений (president-only actions).
+3. Расчет сравнения "сильнее/слабее".
+4. Фильтрация сообщений для подтвержденных участников.
 
 Integration:
-1. Обновление `widget_cache` из API.
-2. Виджет читает данные из `widget_cache` при офлайне.
-3. Search + save profile + widget render.
+1. Поиск клуба -> сохранение -> refresh -> обновление snapshots.
+2. Верификация -> доступ к president-функциям.
+3. Жизненный цикл предложения объединения (`draft -> sent -> accepted/declined`).
 
 UI:
-1. Выбор профиля для виджета.
-2. Отображение текущей/следующей Solo карты.
-3. Отображение кубков/иконки/тега сохраненного профиля.
+1. Переходы внутри вкладки `Clubs`.
+2. Корректность отображения аналитики семейства.
+3. Создание и чтение клубных сообщений.
 
-## 11. Delivery Milestones
+## 10. Milestones
 
-1. Week 1: skeleton + Room + network layer.
-2. Week 2: player search + save profile.
-3. Week 3: widget maps/profile data pipeline.
-4. Week 4: widget UI + refresh actions.
-5. Week 5: news module.
-6. Week 6: tests + stabilization.
+1. Phase 1: Data schema migration + Clubs tab skeleton.
+2. Phase 2: Club search/save/refresh + snapshots.
+3. Phase 3: Verification flow + role gates.
+4. Phase 4: Family proposals + family analytics.
+5. Phase 5: Club messages + ideas/rewards block.
+6. Phase 6: Stabilization, тесты и демо-подготовка.
 
-## 12. Definition of Done
+## 11. Definition of Done (Demo)
 
-1. Виджет показывает текущую и следующую Solo Showdown карту.
-2. Виджет показывает сохраненный профиль: `playerTag`, `totalTrophies`, `profileIcon`.
-3. При отсутствии сети виджет использует последний валидный кэш.
-4. Поиск игрока и сохранение профиля работают стабильно.
-5. CRUD новостей работает.
+1. Пользователь может найти клуб по тегу, сохранить и обновить статистику вручную.
+2. В приложении работает локальная верификация участника/президента.
+3. Только подтвержденный президент может создавать предложения объединения и клубные объявления.
+4. Экран семейства показывает сравнение клубов по ключевым метрикам.
+5. Сообщения клуба доступны подтвержденным участникам соответствующего клуба.
+6. Блок карт/будущих карт/лучших персонажей сохранен и доступен из UI.
+7. Реализован блок советов и `Interesting Ideas` с локальными наградами.
 
-## 13. Assumptions
+## 12. Assumptions
 
-1. `/events` содержит признак режима для фильтрации Solo Showdown.
-2. `/graphs/player/{tag}` содержит поле, достаточное для `totalTrophies` и `iconId`.
-3. Если структура API отличается, маппинг фиксируется в адаптере без изменения UI-контракта виджета.
+1. Для демо принимается локальная модель доверия без серверной криптографической верификации.
+2. Источники внешних данных по клубам и картам остаются доступными по текущему API-слою.
+3. Продакшн-сервер будет добавлен отдельной фазой без критического рефакторинга UI-контрактов.
