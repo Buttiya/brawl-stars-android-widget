@@ -1,4 +1,4 @@
-﻿package com.example.brawlwidgetdemo.data.network
+package com.example.brawlwidgetdemo.data.network
 
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -7,10 +7,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object NetworkFactory {
-    private const val PRIMARY_BASE_URL = "https://api.brawlapi.com"
     private const val OFFICIAL_BASE_URL = "https://api.brawlstars.com"
-
-    fun createPrimaryRetrofit(): Retrofit = createRetrofit(PRIMARY_BASE_URL, null)
 
     fun createOfficialRetrofit(token: String): Retrofit = createRetrofit(OFFICIAL_BASE_URL, token)
 
@@ -22,7 +19,7 @@ object NetworkFactory {
         val client = OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val builder = chain.request().newBuilder()
-                    .header("User-Agent", "Brawlify.com/app")
+                    .header("User-Agent", "BrawlWidgetDemo/0.2.1")
 
                 if (!bearerToken.isNullOrBlank()) {
                     builder.header("Authorization", "Bearer $bearerToken")

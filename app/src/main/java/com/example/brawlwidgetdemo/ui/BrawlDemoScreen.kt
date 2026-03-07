@@ -106,7 +106,7 @@ private fun WidgetCacheCard(
 
             Text("Current: ${cache?.trackedCurrentModeName ?: state.selectedTrackingMode.label} | ${cache?.soloCurrentMapName ?: "-"}")
             Text("Next: ${cache?.trackedNextModeName ?: state.selectedTrackingMode.label} | ${cache?.soloNextMapName ?: "TBD"}")
-            Text("Next icon URL: ${cache?.trackedNextModeIconUrl ?: "-"}")
+            Text("Current icon URL: ${cache?.trackedCurrentModeIconUrl ?: "-"}")
             Text("Saved nick: ${cache?.savedPlayerName ?: "-"}")
             Text("Saved trophies: ${cache?.savedPlayerTrophies?.toString() ?: "-"}")
             Text("Saved EXP: ${cache?.savedPlayerExpLevel?.toString() ?: "-"}")

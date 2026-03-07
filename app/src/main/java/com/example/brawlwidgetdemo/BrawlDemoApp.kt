@@ -1,9 +1,8 @@
-﻿package com.example.brawlwidgetdemo
+package com.example.brawlwidgetdemo
 
 import android.app.Application
 import androidx.room.Room
 import com.example.brawlwidgetdemo.data.db.AppDatabase
-import com.example.brawlwidgetdemo.data.network.BrawlApiService
 import com.example.brawlwidgetdemo.data.network.NetworkFactory
 import com.example.brawlwidgetdemo.data.network.OfficialBrawlStarsService
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
@@ -23,8 +22,6 @@ class BrawlDemoApp : Application() {
             .fallbackToDestructiveMigration()
             .build()
 
-        val primaryApi = NetworkFactory.createPrimaryRetrofit().create(BrawlApiService::class.java)
-
         val officialApi: OfficialBrawlStarsService? =
             if (BuildConfig.BRAWL_STARS_API_TOKEN.isBlank()) {
                 null
@@ -34,7 +31,6 @@ class BrawlDemoApp : Application() {
             }
 
         playerRepository = PlayerRepository(
-            api = primaryApi,
             officialApi = officialApi,
             playerDao = db.playerDao(),
             snapshotDao = db.snapshotDao(),

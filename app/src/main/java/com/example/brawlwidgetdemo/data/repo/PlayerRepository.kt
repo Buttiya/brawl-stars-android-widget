@@ -8,20 +8,22 @@ import com.example.brawlwidgetdemo.data.db.PlayerSnapshotEntity
 import com.example.brawlwidgetdemo.data.db.SnapshotDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheEntity
-import com.example.brawlwidgetdemo.data.network.BrawlApiService
 import com.example.brawlwidgetdemo.data.network.OfficialBrawlStarsService
 import com.example.brawlwidgetdemo.domain.isTagValid
 import com.example.brawlwidgetdemo.domain.normalizeTag
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
-import retrofit2.Response
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 enum class TrackingMode(
     val key: String,
@@ -66,7 +68,10 @@ enum class TrackingMode(
             .map(::normalizeModeToken)
             .toSet()
 
-        if (normalized.any { token -> modeTokens.contains(token) }) {
+        if (normalized.any { token ->
+                modeTokens.contains(token) ||
+                    modeTokens.any { known -> token.contains(known) || known.contains(token) }
+            }) {
             return true
         }
 
@@ -83,7 +88,6 @@ enum class TrackingMode(
 }
 
 class PlayerRepository(
-    private val api: BrawlApiService,
     private val officialApi: OfficialBrawlStarsService?,
     private val playerDao: PlayerDao,
     private val snapshotDao: SnapshotDao,
@@ -153,12 +157,8 @@ class PlayerRepository(
     private suspend fun fetchAndCachePlayer(rawTag: String): Result<PlayerEntity> {
         val tag = normalizeTag(rawTag)
 
-        val response = requestPlayer(tag)
-        if (response.isSuccessful && response.body() != null) {
-            val player = mapPlayer(tag, response.body()!!)
-            playerDao.upsert(player)
-            insertSnapshotIfChanged(player)
-            return Result.success(player)
+        if (officialApi == null) {
+            return Result.failure(IOException("Добавь BRAWL_STARS_API_TOKEN в gradle.properties"))
         }
 
         val official = requestOfficialPlayer(tag)
@@ -168,24 +168,7 @@ class PlayerRepository(
             return Result.success(official)
         }
 
-        if (response.code() == 404) {
-            if (officialApi == null) {
-                return Result.failure(
-                    IOException(
-                        "Поиск профиля недоступен: api.brawlapi.com больше не отдает player endpoint. " +
-                            "Добавь BRAWL_STARS_API_TOKEN в gradle.properties."
-                    )
-                )
-            }
-            return Result.failure(IOException("Игрок не найден или токен BRAWL_STARS_API_TOKEN недействителен"))
-        }
-
-        return Result.failure(IOException(errorMessageForCode(response.code())))
-    }
-
-    private suspend fun requestPlayer(tag: String): Response<JsonObject> {
-        return runCatching { api.getPlayerGraphs(tag) }
-            .getOrElse { throw IOException("Сервис недоступен") }
+        return Result.failure(IOException("Игрок не найден или токен BRAWL_STARS_API_TOKEN недействителен"))
     }
 
     private suspend fun requestOfficialPlayer(tag: String): PlayerEntity? {
@@ -198,11 +181,23 @@ class PlayerRepository(
     }
 
     private suspend fun refreshTrackedModePart() {
-        val payload = requestEventsBody() ?: return
         val selectedMode = getTrackedMode()
-        val (current, fromApi) = parseEventsByMode(payload, selectedMode)
-        val next = fromApi ?: requestPredictedFromBrawlify(selectedMode)
-        val modeIcons = requestGameModesBody()
+        val rotation = requestOfficialRotationEvents()
+
+        val now = Instant.now()
+        val current = rotation
+            .filter { event -> event.start <= now && event.end > now }
+            .firstOrNull { event -> selectedMode.matches(event.modeEvent.modeName, event.modeEvent.modeHash, event.slotId) }
+            ?.modeEvent
+
+        val nextFromOfficial = rotation
+            .filter { event -> event.start > now }
+            .sortedBy { event -> event.start }
+            .firstOrNull { event -> selectedMode.matches(event.modeEvent.modeName, event.modeEvent.modeHash, event.slotId) }
+            ?.modeEvent
+
+        val next = nextFromOfficial ?: requestPredictedFromBrawlify(selectedMode)
+        val modeIcons = requestBrawlifyGameModesBody()
 
         val prev = widgetCacheDao.get() ?: emptyWidgetCache()
         widgetCacheDao.upsert(
@@ -221,31 +216,72 @@ class PlayerRepository(
         )
     }
 
-    private suspend fun requestEventsBody(): JsonObject? {
-        val response = runCatching { api.getEvents() }.getOrNull()
-        if (response?.isSuccessful == true && response.body() != null) return response.body()
-        return response?.body()
+    private suspend fun requestOfficialRotationEvents(): List<RotationEvent> {
+        val service = officialApi ?: return emptyList()
+        val response = runCatching { service.getEventsRotation() }.getOrNull() ?: return emptyList()
+        if (!response.isSuccessful) return emptyList()
+
+        val items = response.body() ?: return emptyList()
+        return items.mapNotNull { raw ->
+            val root = raw.asObj() ?: return@mapNotNull null
+            val event = root.getObj("event") ?: return@mapNotNull null
+
+            val start = parseOfficialTime(root.getStr("startTime")) ?: return@mapNotNull null
+            val end = parseOfficialTime(root.getStr("endTime")) ?: return@mapNotNull null
+            val mapName = event.getStr("map") ?: return@mapNotNull null
+            val mode = event.getStr("mode")
+
+            RotationEvent(
+                slotId = root.getInt("slotId"),
+                modeEvent = ModeEvent(
+                    mapName = mapName,
+                    mapImage = null,
+                    modeId = event.getInt("modeId"),
+                    modeName = mode ?: selectedLabelForUnknownMode(root.getInt("slotId")),
+                    modeHash = mode
+                ),
+                start = start,
+                end = end
+            )
+        }
     }
 
-    private suspend fun requestGameModesBody(): JsonObject? {
-        val response = runCatching { api.getGameModes() }.getOrNull()
-        if (response?.isSuccessful == true && response.body() != null) return response.body()
-        return response?.body()
+    private suspend fun requestBrawlifyGameModesBody(): JsonObject? {
+        val json = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = (URL("https://api.brawlapi.com/v1/gamemodes").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("User-Agent", "Brawlify.com/app")
+                    setRequestProperty("Accept", "application/json")
+                }
+
+                connection.inputStream.bufferedReader().use { it.readText() }
+            }.getOrNull()
+        } ?: return null
+
+        val parsed = runCatching { JsonParser.parseString(json) }.getOrNull() ?: return null
+        return when {
+            parsed.isJsonObject -> parsed.asJsonObject
+            parsed.isJsonArray -> JsonObject().apply { add("list", parsed.asJsonArray) }
+            else -> null
+        }
     }
 
     private suspend fun requestPredictedFromBrawlify(mode: TrackingMode): ModeEvent? {
         val html = withContext(Dispatchers.IO) {
             runCatching {
-            val connection = (URL("https://brawlify.com/events").openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("User-Agent", "Mozilla/5.0 Brawlify.com/app")
-                setRequestProperty("Accept", "text/html")
-            }
+                val connection = (URL("https://brawlify.com/events").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("User-Agent", "Mozilla/5.0 Brawlify.com/app")
+                    setRequestProperty("Accept", "text/html")
+                }
 
-            connection.inputStream.bufferedReader().use { it.readText() }
-            }.getOrNull() ?: return@withContext null
+                connection.inputStream.bufferedReader().use { it.readText() }
+            }.getOrNull()
         } ?: return null
 
         val text = html
@@ -328,7 +364,7 @@ class PlayerRepository(
             val candidateTokens = listOfNotNull(obj.getStr("hash"), obj.getStr("name"))
                 .map(::normalizeModeToken)
                 .toSet()
-            candidateTokens.any { token -> desiredTokens.contains(token) }
+            candidateTokens.any { token -> desiredTokens.any { desired -> token.contains(desired) || desired.contains(token) } }
         }?.asObj()
 
         return byToken?.getStr("imageUrl") ?: byToken?.getStr("imageUrl2")
@@ -351,38 +387,9 @@ class PlayerRepository(
         )
     }
 
-    private suspend fun resolveIconUrl(iconId: Int?): String? {
+    private fun resolveIconUrl(iconId: Int?): String? {
         if (iconId == null) return null
-
-        val body = requestIconsBody()
-        if (body != null) {
-            val allIcons = body.getObj("player") ?: body.getObj("profiles") ?: body
-            val entries = allIcons.getArr("regular")
-                ?: allIcons.getArr("list")
-                ?: allIcons.getArr("items")
-                ?: allIcons.getArr("icons")
-                ?: JsonArray()
-
-            entries.forEach { raw ->
-                val obj = raw.asObj() ?: return@forEach
-                if (obj.getInt("id") == iconId) {
-                    val url = obj.getStr("imageUrl2")
-                        ?: obj.getStr("imageUrl")
-                        ?: obj.getStr("url")
-                    if (!url.isNullOrBlank()) {
-                        return url
-                    }
-                }
-            }
-        }
-
         return "https://cdn.brawlify.com/profile-icons/regular/$iconId.png"
-    }
-
-    private suspend fun requestIconsBody(): JsonObject? {
-        val response = runCatching { api.getIcons() }.getOrNull()
-        if (response?.isSuccessful == true && response.body() != null) return response.body()
-        return response?.body()
     }
 
     private suspend fun insertSnapshotIfChanged(player: PlayerEntity) {
@@ -400,88 +407,6 @@ class PlayerRepository(
                 )
             )
         }
-    }
-
-    private fun parseEventsByMode(payload: JsonObject, mode: TrackingMode): Pair<ModeEvent?, ModeEvent?> {
-        val active = extractEventCandidates(payload, listOf("active", "current"))
-        val predicted = extractEventCandidates(
-            payload,
-            listOf("upcoming", "next", "predicted", "Predicted", "predictions", "Predictions")
-        )
-
-        val current = active.firstForMode(mode)
-        val next = predicted.firstForMode(mode)
-
-        return current to next
-    }
-
-    private fun extractEventCandidates(payload: JsonObject, keys: List<String>): List<JsonObject> {
-        return keys
-            .mapNotNull { key -> payload.get(key) }
-            .flatMap { raw -> raw.toEventArrays() }
-            .flatMap { arr -> arr.mapNotNull { item -> item.asObj() } }
-    }
-
-    private fun JsonElement.toEventArrays(): List<JsonArray> {
-        if (isJsonArray) return listOf(asJsonArray)
-        if (!isJsonObject) return emptyList()
-
-        val obj = asJsonObject
-        return listOfNotNull(
-            obj.getArr("events"),
-            obj.getArr("list"),
-            obj.getArr("items"),
-            obj.getArr("active"),
-            obj.getArr("upcoming"),
-            obj.getArr("next")
-        )
-    }
-
-    private fun List<JsonObject>.firstForMode(mode: TrackingMode): ModeEvent? {
-        var fallback: ModeEvent? = null
-
-        forEach { root ->
-            val event = root.getObj("event") ?: root.getObj("battle") ?: root
-            val slot = root.getInt("slot") ?: event.getInt("slot")
-
-            val modeObj = event.getObj("mode") ?: root.getObj("mode")
-            val modeName = modeObj?.getStr("name") ?: event.resolveModeName()
-            val modeHash = modeObj?.getStr("hash") ?: event.getStr("modeHash")
-
-            if (!mode.matches(modeName, modeHash, slot)) {
-                return@forEach
-            }
-
-            val map = event.getObj("map") ?: root.getObj("map")
-            val mapName = map?.getStr("name") ?: event.getStr("map")
-            val candidate = ModeEvent(
-                mapName = mapName ?: "Unknown",
-                mapImage = map?.getStr("imageUrl2") ?: map?.getStr("imageUrl") ?: event.getStr("imageUrl"),
-                modeId = modeObj?.getInt("id") ?: event.getInt("modeId"),
-                modeName = modeName ?: mode.label,
-                modeHash = modeHash
-            )
-
-            // Prefer entries with a real map name (some slots return mode-only rows with null map).
-            if (!mapName.isNullOrBlank()) {
-                return candidate
-            }
-
-            if (fallback == null) {
-                fallback = candidate
-            }
-        }
-
-        return fallback
-    }
-
-    private fun JsonObject.resolveModeName(): String? {
-        return getObj("mode")?.getStr("name")
-            ?: getObj("gameMode")?.getStr("name")
-            ?: getObj("slot")?.getStr("name")
-            ?: getObj("map")?.getObj("gameMode")?.getStr("name")
-            ?: getStr("mode")
-            ?: getStr("gameMode")
     }
 
     private suspend fun getTrackedMode(): TrackingMode {
@@ -506,40 +431,6 @@ class PlayerRepository(
         )
     }
 
-    private fun mapPlayer(tag: String, payload: JsonObject): PlayerEntity {
-        val root = payload.getObj("player") ?: payload
-        val club = root.getObj("club")
-        val icon = root.getObj("icon")
-
-        return PlayerEntity(
-            tag = (root.getStr("tag")?.replace("#", "") ?: tag).uppercase(),
-            name = root.getStr("name") ?: payload.getStr("name"),
-            trophies = root.getInt("trophies") ?: payload.getInt("trophies"),
-            highestTrophies = root.getInt("highestTrophies") ?: payload.getInt("highestTrophies"),
-            expLevel = root.getInt("expLevel") ?: payload.getInt("expLevel"),
-            clubTag = club?.getStr("tag")?.replace("#", ""),
-            clubName = club?.getStr("name"),
-            profileIconId = icon?.getInt("id") ?: root.getInt("iconId"),
-            lastSyncedAt = System.currentTimeMillis()
-        )
-    }
-
-
-    private suspend fun buildTagOnlyPlayer(tag: String): PlayerEntity {
-        val existing = playerDao.getByTag(tag)
-        return PlayerEntity(
-            tag = tag,
-            name = existing?.name ?: "Player #$tag",
-            trophies = existing?.trophies,
-            highestTrophies = existing?.highestTrophies,
-            expLevel = existing?.expLevel,
-            clubTag = existing?.clubTag,
-            clubName = existing?.clubName,
-            profileIconId = existing?.profileIconId,
-            lastSyncedAt = System.currentTimeMillis()
-        )
-    }
-
     private fun emptyWidgetCache() = WidgetCacheEntity(
         id = 1,
         trackedModeKey = TrackingMode.Showdown.key,
@@ -558,12 +449,6 @@ class PlayerRepository(
         savedPlayerIconUrl = null,
         updatedAt = System.currentTimeMillis()
     )
-
-    private fun errorMessageForCode(code: Int): String = when (code) {
-        404 -> "Профиль игрока недоступен в BrawlAPI v1 (endpoint /v1/graphs/player deprecated)"
-        429 -> "Превышен лимит API"
-        else -> "Сервис временно недоступен ($code)"
-    }
 }
 
 data class ModeEvent(
@@ -573,6 +458,28 @@ data class ModeEvent(
     val modeName: String,
     val modeHash: String?
 )
+
+data class RotationEvent(
+    val slotId: Int?,
+    val modeEvent: ModeEvent,
+    val start: Instant,
+    val end: Instant
+)
+
+private val OFFICIAL_TIME_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX").withZone(ZoneOffset.UTC)
+
+private fun parseOfficialTime(value: String?): Instant? {
+    if (value.isNullOrBlank()) return null
+    return runCatching { Instant.from(OFFICIAL_TIME_FORMATTER.parse(value)) }.getOrNull()
+}
+
+private fun selectedLabelForUnknownMode(slotId: Int?): String {
+    return when (slotId) {
+        2, 5, 39 -> "Showdown"
+        else -> "Unknown"
+    }
+}
 
 private fun normalizeModeToken(value: String): String {
     return value.lowercase().replace(Regex("[^a-z0-9]"), "")
@@ -600,6 +507,3 @@ private fun JsonObject.getInt(key: String): Int? {
     val value: JsonElement = get(key) ?: return null
     return if (value.isJsonNull) null else runCatching { value.asInt }.getOrNull()
 }
-
-
-
