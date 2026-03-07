@@ -16,10 +16,12 @@ Android-приложение на Kotlin/Compose с поиском игрока 
 - Виджет показывает:
   - текущую карту выбранного режима,
   - следующую карту,
+  - иконку режима (при наличии),
   - сохранённый профиль (`name/tag`, `trophies`, `EXP`, `icon`).
 - Ручное обновление виджета кнопкой `Refresh` (через `WorkManager`).
 
-## Источники данных (официальный API)
+## Источники данных
+### Официальный API (основной)
 1. Профиль игрока:
    - `GET https://api.brawlstars.com/v1/players/%23{tag}`
 2. Ротация событий/карт:
@@ -28,6 +30,14 @@ Android-приложение на Kotlin/Compose с поиском игрока 
 `events/rotation` возвращает список с `startTime`/`endTime`. Приложение определяет:
 - текущую карту: `startTime <= now < endTime`
 - следующую карту: ближайшая запись с `startTime > now`
+
+### Brawlify/BrawlAPI fallback
+- Если в официальной ротации нет будущей карты для выбранного режима, используется predicted fallback:
+  - `https://brawlify.com/events` (парсинг `PREDICTED`).
+- Иконки режимов берутся из:
+  - `https://api.brawlapi.com/v1/gamemodes`
+- Иконка профиля игрока формируется по `iconId` через CDN:
+  - `https://cdn.brawlify.com/profile-icons/regular/{iconId}.png`
 
 ## Настройка токена
 Добавьте токен одним из способов:
@@ -67,3 +77,7 @@ APK:
 - Data: Retrofit/OkHttp + Room
 - Фоновые задачи: WorkManager
 - Источник правды для виджета: таблица `widget_cache`
+
+## Ограничения
+- Predicted fallback с `brawlify.com/events` основан на парсинге HTML и может сломаться при изменении верстки.
+- В официальный API иконки режимов не входят, поэтому они грузятся из `brawlapi.com`.
