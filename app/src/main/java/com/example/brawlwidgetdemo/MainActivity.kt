@@ -36,6 +36,10 @@ class MainActivity : ComponentActivity() {
                 onRefreshWidget = {
                     enqueueWidgetRefresh()
                 },
+                onSelectTrackingMode = {
+                    vm.selectTrackingMode(it)
+                    enqueueWidgetRefresh()
+                },
                 onTabSelect = vm::setTab,
                 onRefreshFavorites = vm::refreshFavorites,
                 onSelectFavorite = vm::loadFavorite

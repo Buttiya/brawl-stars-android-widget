@@ -1,4 +1,4 @@
-package com.example.brawlwidgetdemo.data.network
+﻿package com.example.brawlwidgetdemo.data.network
 
 import com.google.gson.JsonObject
 import retrofit2.Response

@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.brawlwidgetdemo.data.db.PlayerEntity
 import com.example.brawlwidgetdemo.data.db.WidgetCacheEntity
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
+import com.example.brawlwidgetdemo.data.repo.TrackingMode
 import com.example.brawlwidgetdemo.domain.isTagValid
 import com.example.brawlwidgetdemo.domain.normalizeTag
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,7 +29,9 @@ data class PlayerUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val currentTab: Tab = Tab.Search,
-    val widgetCache: WidgetCacheEntity? = null
+    val widgetCache: WidgetCacheEntity? = null,
+    val selectedTrackingMode: TrackingMode = TrackingMode.Showdown,
+    val availableTrackingModes: List<TrackingMode> = TrackingMode.all
 )
 
 enum class Tab {
@@ -42,6 +47,7 @@ private data class CoreState(
     val widgetCache: WidgetCacheEntity?
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlayerViewModel(
     private val repository: PlayerRepository
 ) : ViewModel() {
@@ -50,6 +56,11 @@ class PlayerViewModel(
     private val isLoading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
     private val currentTab = MutableStateFlow(Tab.Search)
+
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        isLoading.value = false
+        error.value = throwable.message ?: "Сетевая ошибка"
+    }
 
     private val coreState = combine(
         inputTag,
@@ -75,6 +86,7 @@ class PlayerViewModel(
     ) { core, loading, err, tab ->
         val normalized = core.selectedTag?.let(::normalizeTag)
         val favorite = normalized != null && core.favorites.any { item -> item.tag == normalized }
+        val selectedMode = TrackingMode.fromKey(core.widgetCache?.trackedModeKey)
 
         PlayerUiState(
             inputTag = core.inputTag,
@@ -85,7 +97,8 @@ class PlayerViewModel(
             isLoading = loading,
             error = err,
             currentTab = tab,
-            widgetCache = core.widgetCache
+            widgetCache = core.widgetCache,
+            selectedTrackingMode = selectedMode
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlayerUiState())
 
@@ -97,9 +110,21 @@ class PlayerViewModel(
         currentTab.value = tab
     }
 
+    fun selectTrackingMode(mode: TrackingMode) {
+        viewModelScope.launch(exceptionHandler) {
+            isLoading.value = true
+            error.value = null
+            runCatching {
+                repository.setTrackedMode(mode)
+                repository.refreshWidgetData()
+            }.onFailure { error.value = it.message ?: "Ошибка выбора режима" }
+            isLoading.value = false
+        }
+    }
+
     fun search() {
         val query = inputTag.value
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             isLoading.value = true
             error.value = null
             runCatching { repository.searchPlayer(query) }
@@ -119,7 +144,7 @@ class PlayerViewModel(
 
     fun toggleFavorite() {
         val tag = selectedTag.value ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             repository.toggleFavorite(tag)
         }
     }
@@ -131,7 +156,7 @@ class PlayerViewModel(
             return
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             isLoading.value = true
             error.value = null
             runCatching { repository.saveProfileForWidget(tag) }
@@ -147,7 +172,7 @@ class PlayerViewModel(
     }
 
     fun refreshFavorites() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             isLoading.value = true
             error.value = null
             runCatching { repository.refreshFavorites() }
@@ -157,7 +182,7 @@ class PlayerViewModel(
     }
 
     fun refreshWidget() {
-        viewModelScope.launch {
+        viewModelScope.launch(exceptionHandler) {
             isLoading.value = true
             error.value = null
             runCatching { repository.refreshWidgetData() }

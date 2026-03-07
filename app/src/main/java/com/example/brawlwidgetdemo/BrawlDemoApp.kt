@@ -1,4 +1,4 @@
-package com.example.brawlwidgetdemo
+﻿package com.example.brawlwidgetdemo
 
 import android.app.Application
 import androidx.room.Room
@@ -24,7 +24,6 @@ class BrawlDemoApp : Application() {
             .build()
 
         val primaryApi = NetworkFactory.createPrimaryRetrofit().create(BrawlApiService::class.java)
-        val secondaryApi = NetworkFactory.createSecondaryRetrofit().create(BrawlApiService::class.java)
 
         val officialApi: OfficialBrawlStarsService? =
             if (BuildConfig.BRAWL_STARS_API_TOKEN.isBlank()) {
@@ -36,7 +35,6 @@ class BrawlDemoApp : Application() {
 
         playerRepository = PlayerRepository(
             api = primaryApi,
-            secondaryApi = secondaryApi,
             officialApi = officialApi,
             playerDao = db.playerDao(),
             snapshotDao = db.snapshotDao(),

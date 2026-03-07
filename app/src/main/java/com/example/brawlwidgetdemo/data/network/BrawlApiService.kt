@@ -14,4 +14,7 @@ interface BrawlApiService {
 
     @GET("/v1/icons")
     suspend fun getIcons(): Response<JsonObject>
+
+    @GET("/v1/gamemodes")
+    suspend fun getGameModes(): Response<JsonObject>
 }

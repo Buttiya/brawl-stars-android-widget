@@ -15,8 +15,9 @@ class RefreshWidgetWorker(
 
         return runCatching {
             app.playerRepository.refreshWidgetData()
-            val iconUrl = app.playerRepository.getWidgetCache()?.savedPlayerIconUrl
-            WidgetAssetStore.saveProfileIcon(applicationContext, iconUrl)
+            val cache = app.playerRepository.getWidgetCache()
+            WidgetAssetStore.saveProfileIcon(applicationContext, cache?.savedPlayerIconUrl)
+            WidgetAssetStore.saveNextModeIcon(applicationContext, cache?.trackedNextModeIconUrl)
             BrawlWidgetProvider.updateAll(applicationContext)
         }.fold(
             onSuccess = { Result.success() },

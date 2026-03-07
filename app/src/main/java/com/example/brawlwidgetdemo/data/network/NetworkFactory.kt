@@ -1,4 +1,4 @@
-package com.example.brawlwidgetdemo.data.network
+﻿package com.example.brawlwidgetdemo.data.network
 
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -8,12 +8,9 @@ import java.util.concurrent.TimeUnit
 
 object NetworkFactory {
     private const val PRIMARY_BASE_URL = "https://api.brawlapi.com"
-    private const val SECONDARY_BASE_URL = "https://proxy.brawlapi.com"
     private const val OFFICIAL_BASE_URL = "https://api.brawlstars.com"
 
     fun createPrimaryRetrofit(): Retrofit = createRetrofit(PRIMARY_BASE_URL, null)
-
-    fun createSecondaryRetrofit(): Retrofit = createRetrofit(SECONDARY_BASE_URL, null)
 
     fun createOfficialRetrofit(token: String): Retrofit = createRetrofit(OFFICIAL_BASE_URL, token)
 

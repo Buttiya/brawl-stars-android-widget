@@ -17,8 +17,12 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val brawlStarsToken = (project.findProperty("BRAWL_STARS_API_TOKEN") as String?) ?: ""
-        buildConfigField("String", "BRAWL_STARS_API_TOKEN", "\"$brawlStarsToken\"")
+        val brawlStarsApiToken = ((project.findProperty("BRAWL_STARS_API_TOKEN") as String?)
+            ?: System.getenv("BRAWL_STARS_API_TOKEN"))
+            ?.trim()
+            ?.replace("\"", "\\\"")
+            ?: ""
+        buildConfigField("String", "BRAWL_STARS_API_TOKEN", "\"$brawlStarsApiToken\"")
     }
 
     buildTypes {
@@ -81,3 +85,4 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
