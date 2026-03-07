@@ -7,8 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +38,7 @@ fun BrawlDemoScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -172,8 +173,8 @@ private fun FavoritesTab(
         return
     }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(favorites, key = { it.tag }) { item ->
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        favorites.forEach { item ->
             Card(
                 modifier = Modifier
                     .fillMaxWidth()

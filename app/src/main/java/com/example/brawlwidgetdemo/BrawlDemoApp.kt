@@ -5,10 +5,14 @@ import androidx.room.Room
 import com.example.brawlwidgetdemo.data.db.AppDatabase
 import com.example.brawlwidgetdemo.data.network.NetworkFactory
 import com.example.brawlwidgetdemo.data.network.OfficialBrawlStarsService
+import com.example.brawlwidgetdemo.data.repo.AuthRepository
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
 
 class BrawlDemoApp : Application() {
     lateinit var playerRepository: PlayerRepository
+        private set
+
+    lateinit var authRepository: AuthRepository
         private set
 
     override fun onCreate() {
@@ -37,5 +41,9 @@ class BrawlDemoApp : Application() {
             favoriteDao = db.favoriteDao(),
             widgetCacheDao = db.widgetCacheDao()
         )
+
+        authRepository = AuthRepository(db.userAccountDao())
     }
 }
+
+

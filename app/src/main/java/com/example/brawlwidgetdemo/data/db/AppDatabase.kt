@@ -8,9 +8,10 @@ import androidx.room.RoomDatabase
         PlayerEntity::class,
         PlayerSnapshotEntity::class,
         FavoriteEntity::class,
-        WidgetCacheEntity::class
+        WidgetCacheEntity::class,
+        UserAccountEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -18,4 +19,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun snapshotDao(): SnapshotDao
     abstract fun favoriteDao(): FavoriteDao
     abstract fun widgetCacheDao(): WidgetCacheDao
+    abstract fun userAccountDao(): UserAccountDao
 }
+

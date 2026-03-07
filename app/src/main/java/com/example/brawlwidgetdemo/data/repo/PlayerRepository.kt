@@ -102,6 +102,30 @@ class PlayerRepository(
 
     suspend fun getWidgetCache(): WidgetCacheEntity? = widgetCacheDao.get()
 
+    suspend fun getPlayerByTag(rawTag: String): PlayerEntity? = playerDao.getByTag(normalizeTag(rawTag))
+
+    suspend fun getOwnedBrawlerIds(rawTag: String): Result<Set<Int>> {
+        val tag = normalizeTag(rawTag)
+        if (!isTagValid(tag)) {
+            return Result.failure(IllegalArgumentException("Невалидный тег"))
+        }
+
+        val service = officialApi
+            ?: return Result.failure(IOException("Добавь BRAWL_STARS_API_TOKEN в gradle.properties"))
+        val response = runCatching { service.getPlayer(tag) }.getOrNull()
+            ?: return Result.failure(IOException("Не удалось запросить профиль игрока"))
+        if (!response.isSuccessful) {
+            return Result.failure(IOException("Не удалось получить список бойцов"))
+        }
+
+        val body = response.body()
+            ?: return Result.failure(IOException("Пустой ответ сервера"))
+        val brawlers = body.getArr("brawlers") ?: return Result.success(emptySet())
+
+        val ids = brawlers.mapNotNull { raw -> raw.asObj()?.getInt("id") }.toSet()
+        return Result.success(ids)
+    }
+
     suspend fun searchPlayer(rawTag: String): Result<String> {
         val tag = normalizeTag(rawTag)
         if (!isTagValid(tag)) {
@@ -372,7 +396,7 @@ class PlayerRepository(
 
     private suspend fun refreshSavedProfilePart(rawTag: String) {
         val player = fetchAndCachePlayer(rawTag).getOrNull() ?: return
-        val iconUrl = resolveIconUrl(player.profileIconId)
+        val iconUrl = profileIconUrl(player.profileIconId)
 
         val prev = widgetCacheDao.get() ?: emptyWidgetCache()
         widgetCacheDao.upsert(
@@ -387,7 +411,7 @@ class PlayerRepository(
         )
     }
 
-    private fun resolveIconUrl(iconId: Int?): String? {
+    fun profileIconUrl(iconId: Int?): String? {
         if (iconId == null) return null
         return "https://cdn.brawlify.com/profile-icons/regular/$iconId.png"
     }
@@ -427,6 +451,9 @@ class PlayerRepository(
             clubTag = club?.getStr("tag")?.replace("#", ""),
             clubName = club?.getStr("name"),
             profileIconId = icon?.getInt("id"),
+            victories3v3 = payload.getInt("3vs3Victories"),
+            soloVictories = payload.getInt("soloVictories"),
+            duoVictories = payload.getInt("duoVictories"),
             lastSyncedAt = System.currentTimeMillis()
         )
     }
@@ -507,3 +534,5 @@ private fun JsonObject.getInt(key: String): Int? {
     val value: JsonElement = get(key) ?: return null
     return if (value.isJsonNull) null else runCatching { value.asInt }.getOrNull()
 }
+
+
