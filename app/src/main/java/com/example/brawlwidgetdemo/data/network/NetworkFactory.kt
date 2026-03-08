@@ -7,7 +7,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object NetworkFactory {
-    fun createProxyRetrofit(baseUrl: String, enableLogging: Boolean): Retrofit =
+    fun createApiRetrofit(baseUrl: String, enableLogging: Boolean): Retrofit =
         createRetrofit(baseUrl, enableLogging)
 
     private fun createRetrofit(baseUrl: String, enableLogging: Boolean): Retrofit {

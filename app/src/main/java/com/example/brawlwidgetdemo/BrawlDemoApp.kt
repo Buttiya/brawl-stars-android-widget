@@ -4,8 +4,8 @@ import android.app.Application
 import android.content.Context
 import androidx.room.Room
 import com.example.brawlwidgetdemo.data.db.AppDatabase
+import com.example.brawlwidgetdemo.data.network.AppApiService
 import com.example.brawlwidgetdemo.data.network.NetworkFactory
-import com.example.brawlwidgetdemo.data.network.ProxyApiService
 import com.example.brawlwidgetdemo.data.repo.AuthRepository
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
 import com.example.brawlwidgetdemo.data.repo.SessionTokenStore
@@ -36,22 +36,22 @@ class BrawlDemoApp : Application() {
             .fallbackToDestructiveMigration()
             .build()
 
-        val savedProxyBaseUrl = getSavedProxyBaseUrl()
-        if (savedProxyBaseUrl.isNotBlank()) {
-            initializeRepositories(savedProxyBaseUrl)
+        val savedApiBaseUrl = getSavedApiBaseUrl()
+        if (savedApiBaseUrl.isNotBlank()) {
+            initializeRepositories(savedApiBaseUrl)
         }
     }
 
-    fun getSavedProxyBaseUrl(): String {
+    fun getSavedApiBaseUrl(): String {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val saved = prefs.getString(KEY_PROXY_BASE_URL, defaultProxyBaseUrl()).orEmpty()
-        return saved.takeIf { it.isNotBlank() } ?: defaultProxyBaseUrl()
+        val saved = prefs.getString(KEY_API_BASE_URL, defaultApiBaseUrl()).orEmpty()
+        return saved.takeIf { it.isNotBlank() } ?: defaultApiBaseUrl()
     }
 
-    fun saveAndApplyProxyBaseUrl(rawUrl: String) {
-        val normalized = normalizeProxyBaseUrl(rawUrl)
+    fun saveAndApplyApiBaseUrl(rawUrl: String) {
+        val normalized = normalizeApiBaseUrl(rawUrl)
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_PROXY_BASE_URL, normalized).apply()
+        prefs.edit().putString(KEY_API_BASE_URL, normalized).apply()
         initializeRepositories(normalized)
     }
 
@@ -65,15 +65,15 @@ class BrawlDemoApp : Application() {
         prefs.edit().putBoolean(KEY_DARK_THEME, enabled).apply()
     }
 
-    private fun initializeRepositories(proxyBaseUrl: String) {
-        val proxyApi = NetworkFactory.createProxyRetrofit(
-            baseUrl = proxyBaseUrl,
+    private fun initializeRepositories(apiBaseUrl: String) {
+        val appApi = NetworkFactory.createApiRetrofit(
+            baseUrl = apiBaseUrl,
             enableLogging = BuildConfig.DEBUG
         )
-            .create(ProxyApiService::class.java)
+            .create(AppApiService::class.java)
 
         playerRepository = PlayerRepository(
-            proxyApi = proxyApi,
+            api = appApi,
             playerDao = db.playerDao(),
             snapshotDao = db.snapshotDao(),
             dailyTrophyHistoryDao = db.dailyTrophyHistoryDao(),
@@ -82,7 +82,7 @@ class BrawlDemoApp : Application() {
         )
 
         authRepository = AuthRepository(
-            proxyApi = proxyApi,
+            api = appApi,
             userAccountDao = db.userAccountDao(),
             sessionTokenStore = SessionTokenStore(applicationContext)
         )
@@ -94,19 +94,19 @@ class BrawlDemoApp : Application() {
         DailyTrophyHistoryWorker.schedule(applicationContext)
     }
 
-    private fun normalizeProxyBaseUrl(rawUrl: String): String {
+    private fun normalizeApiBaseUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
         return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
     }
 
     private companion object {
         const val PREFS_NAME = "app_runtime_config"
-        const val KEY_PROXY_BASE_URL = "proxy_base_url"
+        const val KEY_API_BASE_URL = "api_base_url"
         const val KEY_DARK_THEME = "dark_theme"
     }
 
-    private fun defaultProxyBaseUrl(): String {
-        return if (BuildConfig.DEBUG) "" else BuildConfig.BRAWL_PROXY_BASE_URL
+    private fun defaultApiBaseUrl(): String {
+        return if (BuildConfig.DEBUG) "" else BuildConfig.BRAWL_API_BASE_URL
     }
 }
 

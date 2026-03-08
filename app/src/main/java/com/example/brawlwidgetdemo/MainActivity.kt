@@ -36,41 +36,41 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val app = LocalContext.current.applicationContext as BrawlDemoApp
-            var showServerDialog by rememberSaveable { mutableStateOf(app.getSavedProxyBaseUrl().isBlank()) }
+            var showApiDialog by rememberSaveable { mutableStateOf(app.getSavedApiBaseUrl().isBlank()) }
             var showThemeDialog by rememberSaveable { mutableStateOf(false) }
-            var serverUrlInput by rememberSaveable { mutableStateOf(app.getSavedProxyBaseUrl()) }
+            var apiUrlInput by rememberSaveable { mutableStateOf(app.getSavedApiBaseUrl()) }
             var isDarkTheme by rememberSaveable { mutableStateOf(app.isDarkThemeEnabled()) }
             var repositoriesVersion by remember { mutableStateOf(0) }
 
             LaunchedEffect(Unit) {
-                serverUrlInput = app.getSavedProxyBaseUrl()
+                apiUrlInput = app.getSavedApiBaseUrl()
             }
 
             AppTheme(darkTheme = isDarkTheme) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    if (showServerDialog) {
+                    if (showApiDialog) {
                         AlertDialog(
                             onDismissRequest = {
-                                if (app.getSavedProxyBaseUrl().isNotBlank()) {
-                                    showServerDialog = false
+                                if (app.getSavedApiBaseUrl().isNotBlank()) {
+                                    showApiDialog = false
                                 }
                             },
-                            title = { Text("Адрес сервера") },
+                            title = { Text("Адрес API") },
                             text = {
                                 OutlinedTextField(
-                                    value = serverUrlInput,
-                                    onValueChange = { serverUrlInput = it },
-                                    label = { Text("Например http://server-address:8787/") },
+                                    value = apiUrlInput,
+                                    onValueChange = { apiUrlInput = it },
+                                    label = { Text("Например http://127.0.0.1:8787/") },
                                     singleLine = true
                                 )
                             },
                             confirmButton = {
                                 Button(
-                                    enabled = serverUrlInput.isNotBlank(),
+                                    enabled = apiUrlInput.isNotBlank(),
                                     onClick = {
-                                        app.saveAndApplyProxyBaseUrl(serverUrlInput)
+                                        app.saveAndApplyApiBaseUrl(apiUrlInput)
                                         repositoriesVersion += 1
-                                        showServerDialog = false
+                                        showApiDialog = false
                                     }
                                 ) {
                                     Text("Сохранить")
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    if (showServerDialog) {
+                    if (showApiDialog) {
                         return@CompositionLocalProvider
                     }
 
@@ -161,9 +161,9 @@ class MainActivity : ComponentActivity() {
                         onOpenThemeSettings = {
                             showThemeDialog = true
                         },
-                        onOpenServerSettings = {
-                            serverUrlInput = app.getSavedProxyBaseUrl()
-                            showServerDialog = true
+                        onOpenApiSettings = {
+                            apiUrlInput = app.getSavedApiBaseUrl()
+                            showApiDialog = true
                         }
                     )
                 }

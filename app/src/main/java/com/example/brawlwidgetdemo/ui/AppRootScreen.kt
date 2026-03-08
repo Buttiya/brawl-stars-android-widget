@@ -92,7 +92,7 @@ fun AppRootScreen(
     onDoneVerificationChallenge: () -> Unit,
     profileIconUrl: (Int?) -> String?,
     onOpenThemeSettings: () -> Unit,
-    onOpenServerSettings: () -> Unit
+    onOpenApiSettings: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(RootTab.Home) }
     var settingsMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -118,10 +118,10 @@ fun AppRootScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Сменить сервер") },
+                                text = { Text("Настроить API") },
                                 onClick = {
                                     settingsMenuExpanded = false
-                                    onOpenServerSettings()
+                                    onOpenApiSettings()
                                 }
                             )
                         }

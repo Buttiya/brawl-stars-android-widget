@@ -7,13 +7,13 @@ import com.example.brawlwidgetdemo.data.network.AuthCredentialsRequest
 import com.example.brawlwidgetdemo.data.network.AuthTagRequest
 import com.example.brawlwidgetdemo.data.network.AuthVerifiedRequest
 import com.example.brawlwidgetdemo.data.network.AuthResponse
-import com.example.brawlwidgetdemo.data.network.ProxyApiService
+import com.example.brawlwidgetdemo.data.network.AppApiService
 import kotlinx.coroutines.flow.Flow
 import retrofit2.Response
 import java.security.MessageDigest
 
 class AuthRepository(
-    private val proxyApi: ProxyApiService,
+    private val api: AppApiService,
     private val userAccountDao: UserAccountDao,
     private val sessionTokenStore: SessionTokenStore
 ) {
@@ -24,7 +24,7 @@ class AuthRepository(
     suspend fun syncSession() {
         val local = userAccountDao.get() ?: return
         val token = readPersistedSessionToken(local) ?: return
-        val response = runCatching { proxyApi.getCurrentAccount(authHeader(token)) }.getOrNull()
+        val response = runCatching { api.getCurrentAccount(authHeader(token)) }.getOrNull()
             ?: return
 
         if (response.isSuccessful) {
@@ -51,7 +51,7 @@ class AuthRepository(
         }
 
         val response = runCatching {
-            proxyApi.register(AuthCredentialsRequest(username = login, passwordHash = hash(password)))
+            api.register(AuthCredentialsRequest(username = login, passwordHash = hash(password)))
         }.getOrElse { return Result.failure(it) }
 
         if (!response.isSuccessful) {
@@ -59,7 +59,7 @@ class AuthRepository(
         }
 
         val body = response.body()
-            ?: return Result.failure(IllegalStateException("Пустой ответ сервера"))
+            ?: return Result.failure(IllegalStateException("Пустой ответ API"))
         saveAccount(body.account, body.sessionToken, isLoggedIn = true)
         return Result.success(Unit)
     }
@@ -74,7 +74,7 @@ class AuthRepository(
         }
 
         val response = runCatching {
-            proxyApi.login(AuthCredentialsRequest(username = login, passwordHash = hash(password)))
+            api.login(AuthCredentialsRequest(username = login, passwordHash = hash(password)))
         }.getOrElse { return Result.failure(it) }
 
         if (!response.isSuccessful) {
@@ -82,7 +82,7 @@ class AuthRepository(
         }
 
         val body = response.body()
-            ?: return Result.failure(IllegalStateException("Пустой ответ сервера"))
+            ?: return Result.failure(IllegalStateException("Пустой ответ API"))
         saveAccount(body.account, body.sessionToken, isLoggedIn = true)
         return Result.success(Unit)
     }
@@ -90,8 +90,8 @@ class AuthRepository(
     suspend fun logout() {
         val account = userAccountDao.get() ?: return
         readPersistedSessionToken(account)?.let { token ->
-            runCatching { proxyApi.setVerified(authHeader(token), AuthVerifiedRequest(false)) }
-            runCatching { proxyApi.logout(authHeader(token)) }
+            runCatching { api.setVerified(authHeader(token), AuthVerifiedRequest(false)) }
+            runCatching { api.logout(authHeader(token)) }
         }
         sessionTokenStore.write(null)
         userAccountDao.upsert(
@@ -107,7 +107,7 @@ class AuthRepository(
         val account = userAccountDao.get() ?: return
         val token = readPersistedSessionToken(account) ?: return
         val response = runCatching {
-            proxyApi.setVerified(authHeader(token), AuthVerifiedRequest(verified))
+            api.setVerified(authHeader(token), AuthVerifiedRequest(verified))
         }.getOrNull() ?: return
         val body = response.body() ?: return
         saveAccount(body.account, token, isLoggedIn = true)
@@ -117,7 +117,7 @@ class AuthRepository(
         val account = userAccountDao.get() ?: return
         val token = readPersistedSessionToken(account) ?: return
         val response = runCatching {
-            proxyApi.linkTag(authHeader(token), AuthTagRequest(tag))
+            api.linkTag(authHeader(token), AuthTagRequest(tag))
         }.getOrNull() ?: return
         val body = response.body() ?: return
         saveAccount(body.account, token, isLoggedIn = true)

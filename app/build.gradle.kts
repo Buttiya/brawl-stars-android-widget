@@ -17,8 +17,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val brawlProxyBaseUrl = ""
-        buildConfigField("String", "BRAWL_PROXY_BASE_URL", "\"$brawlProxyBaseUrl\"")
+        val brawlApiBaseUrl = ""
+        buildConfigField("String", "BRAWL_API_BASE_URL", "\"$brawlApiBaseUrl\"")
     }
 
     buildTypes {

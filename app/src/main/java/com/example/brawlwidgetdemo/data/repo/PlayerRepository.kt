@@ -10,7 +10,7 @@ import com.example.brawlwidgetdemo.data.db.PlayerSnapshotEntity
 import com.example.brawlwidgetdemo.data.db.SnapshotDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheEntity
-import com.example.brawlwidgetdemo.data.network.ProxyApiService
+import com.example.brawlwidgetdemo.data.network.AppApiService
 import com.example.brawlwidgetdemo.domain.isTagValid
 import com.example.brawlwidgetdemo.domain.normalizeTag
 import com.google.gson.JsonArray
@@ -87,7 +87,7 @@ enum class TrackingMode(
 }
 
 class PlayerRepository(
-    private val proxyApi: ProxyApiService,
+    private val api: AppApiService,
     private val playerDao: PlayerDao,
     private val snapshotDao: SnapshotDao,
     private val dailyTrophyHistoryDao: DailyTrophyHistoryDao,
@@ -113,14 +113,14 @@ class PlayerRepository(
             return Result.failure(IllegalArgumentException("Невалидный тег"))
         }
 
-        val response = runCatching { proxyApi.getPlayer(tag) }.getOrNull()
+        val response = runCatching { api.getPlayer(tag) }.getOrNull()
             ?: return Result.failure(IOException("Не удалось запросить профиль игрока"))
         if (!response.isSuccessful) {
             return Result.failure(IOException("Не удалось получить список бойцов"))
         }
 
         val body = response.body()
-            ?: return Result.failure(IOException("Пустой ответ сервера"))
+            ?: return Result.failure(IOException("Пустой ответ API"))
         val brawlers = body.getArr("brawlers") ?: return Result.success(emptySet())
 
         val ids = brawlers.mapNotNull { raw -> raw.asObj()?.getInt("id") }.toSet()
@@ -191,7 +191,7 @@ class PlayerRepository(
     private suspend fun fetchAndCachePlayer(rawTag: String): Result<PlayerEntity> {
         val tag = normalizeTag(rawTag)
 
-        val player = requestProxyPlayer(tag)
+        val player = requestApiPlayer(tag)
         if (player != null) {
             playerDao.upsert(player)
             insertSnapshotIfChanged(player)
@@ -199,11 +199,11 @@ class PlayerRepository(
             return Result.success(player)
         }
 
-        return Result.failure(IOException("Игрок не найден или backend недоступен"))
+        return Result.failure(IOException("Игрок не найден или API недоступен"))
     }
 
-    private suspend fun requestProxyPlayer(tag: String): PlayerEntity? {
-        val response = runCatching { proxyApi.getPlayer(tag) }.getOrNull() ?: return null
+    private suspend fun requestApiPlayer(tag: String): PlayerEntity? {
+        val response = runCatching { api.getPlayer(tag) }.getOrNull() ?: return null
         if (!response.isSuccessful) return null
 
         val body = response.body() ?: return null
@@ -247,7 +247,7 @@ class PlayerRepository(
     }
 
     private suspend fun requestOfficialRotationEvents(): List<RotationEvent> {
-        val response = runCatching { proxyApi.getEventsRotation() }.getOrNull() ?: return emptyList()
+        val response = runCatching { api.getEventsRotation() }.getOrNull() ?: return emptyList()
         if (!response.isSuccessful) return emptyList()
 
         val items = response.body() ?: return emptyList()
@@ -276,13 +276,13 @@ class PlayerRepository(
     }
 
     private suspend fun requestGameModesBody(): JsonObject? {
-        val response = runCatching { proxyApi.getGameModes() }.getOrNull() ?: return null
+        val response = runCatching { api.getGameModes() }.getOrNull() ?: return null
         if (!response.isSuccessful) return null
         return response.body()
     }
 
     private suspend fun requestPredictedMode(mode: TrackingMode): ModeEvent? {
-        val response = runCatching { proxyApi.getPredictedMode(mode.key) }.getOrNull() ?: return null
+        val response = runCatching { api.getPredictedMode(mode.key) }.getOrNull() ?: return null
         if (!response.isSuccessful) return null
         val body = response.body() ?: return null
         val mapName = body.getStr("mapName") ?: return null

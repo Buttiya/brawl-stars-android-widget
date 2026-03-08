@@ -20,8 +20,8 @@ window_dump.xml
 # Local Gradle home for sandboxed builds
 .gradle-user-home/
 
-# Local backend used to proxy mobile API requests
-local-server/
+# Local API helpers
+local-*/
 
 # Signing keys
 *.jks
