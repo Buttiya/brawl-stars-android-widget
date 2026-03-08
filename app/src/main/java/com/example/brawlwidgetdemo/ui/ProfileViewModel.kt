@@ -351,15 +351,13 @@ class ProfileViewModel(
             isLoading.value = true
             clearMessages()
 
-            val refreshResult = playerRepository.searchPlayer(tag)
-            if (refreshResult.isFailure) {
-                error.value = refreshResult.exceptionOrNull()?.message ?: "Не удалось проверить профиль"
+            val refreshedPlayer = playerRepository.refreshPlayer(tag).getOrElse {
+                error.value = it.message ?: "Не удалось проверить профиль"
                 isLoading.value = false
                 return@launch
             }
 
-            val latestPlayer = playerRepository.getPlayerByTag(tag)
-            val matched = latestPlayer?.profileIconId == activeChallenge.expectedIconId
+            val matched = refreshedPlayer.profileIconId == activeChallenge.expectedIconId
 
             if (matched) {
                 authRepository.setVerified(true)

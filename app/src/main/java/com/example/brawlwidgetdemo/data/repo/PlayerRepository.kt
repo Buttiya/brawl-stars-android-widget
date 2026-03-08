@@ -8,19 +8,14 @@ import com.example.brawlwidgetdemo.data.db.PlayerSnapshotEntity
 import com.example.brawlwidgetdemo.data.db.SnapshotDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheDao
 import com.example.brawlwidgetdemo.data.db.WidgetCacheEntity
-import com.example.brawlwidgetdemo.data.network.OfficialBrawlStarsService
+import com.example.brawlwidgetdemo.data.network.ProxyApiService
 import com.example.brawlwidgetdemo.domain.isTagValid
 import com.example.brawlwidgetdemo.domain.normalizeTag
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
-import com.google.gson.JsonParser
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.withContext
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -88,7 +83,7 @@ enum class TrackingMode(
 }
 
 class PlayerRepository(
-    private val officialApi: OfficialBrawlStarsService?,
+    private val proxyApi: ProxyApiService,
     private val playerDao: PlayerDao,
     private val snapshotDao: SnapshotDao,
     private val favoriteDao: FavoriteDao,
@@ -110,9 +105,7 @@ class PlayerRepository(
             return Result.failure(IllegalArgumentException("Невалидный тег"))
         }
 
-        val service = officialApi
-            ?: return Result.failure(IOException("Добавь BRAWL_STARS_API_TOKEN в gradle.properties"))
-        val response = runCatching { service.getPlayer(tag) }.getOrNull()
+        val response = runCatching { proxyApi.getPlayer(tag) }.getOrNull()
             ?: return Result.failure(IOException("Не удалось запросить профиль игрока"))
         if (!response.isSuccessful) {
             return Result.failure(IOException("Не удалось получить список бойцов"))
@@ -133,6 +126,15 @@ class PlayerRepository(
         }
 
         return fetchAndCachePlayer(tag).map { it.tag }
+    }
+
+    suspend fun refreshPlayer(rawTag: String): Result<PlayerEntity> {
+        val tag = normalizeTag(rawTag)
+        if (!isTagValid(tag)) {
+            return Result.failure(IllegalArgumentException("Невалидный тег. Допустимы только символы: 0,2,8,9,P,Y,L,Q,G,R,J,C,U,V"))
+        }
+
+        return fetchAndCachePlayer(tag)
     }
 
     suspend fun toggleFavorite(tag: String): Boolean {
@@ -167,37 +169,32 @@ class PlayerRepository(
         val tag = normalizeTag(rawTag)
         val previous = widgetCacheDao.get() ?: emptyWidgetCache()
         widgetCacheDao.upsert(previous.copy(savedPlayerTag = tag, updatedAt = System.currentTimeMillis()))
-        refreshSavedProfilePart(tag)
+        refreshSavedProfilePart(tag).getOrThrow()
     }
 
     suspend fun refreshWidgetData() {
         refreshTrackedModePart()
         val savedTag = widgetCacheDao.get()?.savedPlayerTag
         if (!savedTag.isNullOrBlank()) {
-            refreshSavedProfilePart(savedTag)
+            refreshSavedProfilePart(savedTag).getOrThrow()
         }
     }
 
     private suspend fun fetchAndCachePlayer(rawTag: String): Result<PlayerEntity> {
         val tag = normalizeTag(rawTag)
 
-        if (officialApi == null) {
-            return Result.failure(IOException("Добавь BRAWL_STARS_API_TOKEN в gradle.properties"))
+        val player = requestProxyPlayer(tag)
+        if (player != null) {
+            playerDao.upsert(player)
+            insertSnapshotIfChanged(player)
+            return Result.success(player)
         }
 
-        val official = requestOfficialPlayer(tag)
-        if (official != null) {
-            playerDao.upsert(official)
-            insertSnapshotIfChanged(official)
-            return Result.success(official)
-        }
-
-        return Result.failure(IOException("Игрок не найден или токен BRAWL_STARS_API_TOKEN недействителен"))
+        return Result.failure(IOException("Игрок не найден или backend недоступен"))
     }
 
-    private suspend fun requestOfficialPlayer(tag: String): PlayerEntity? {
-        val service = officialApi ?: return null
-        val response = runCatching { service.getPlayer(tag) }.getOrNull() ?: return null
+    private suspend fun requestProxyPlayer(tag: String): PlayerEntity? {
+        val response = runCatching { proxyApi.getPlayer(tag) }.getOrNull() ?: return null
         if (!response.isSuccessful) return null
 
         val body = response.body() ?: return null
@@ -220,8 +217,8 @@ class PlayerRepository(
             .firstOrNull { event -> selectedMode.matches(event.modeEvent.modeName, event.modeEvent.modeHash, event.slotId) }
             ?.modeEvent
 
-        val next = nextFromOfficial ?: requestPredictedFromBrawlify(selectedMode)
-        val modeIcons = requestBrawlifyGameModesBody()
+        val next = nextFromOfficial ?: requestPredictedMode(selectedMode)
+        val modeIcons = requestGameModesBody()
 
         val prev = widgetCacheDao.get() ?: emptyWidgetCache()
         widgetCacheDao.upsert(
@@ -230,19 +227,18 @@ class PlayerRepository(
                 trackedModeLabel = selectedMode.label,
                 trackedCurrentModeName = current?.modeName ?: selectedMode.label,
                 trackedCurrentModeIconUrl = resolveModeIconUrl(modeIcons, current),
-                trackedNextModeName = next?.modeName ?: selectedMode.label,
+                trackedNextModeName = next?.modeName ?: prev.trackedNextModeName ?: current?.modeName ?: selectedMode.label,
                 trackedNextModeIconUrl = resolveModeIconUrl(modeIcons, next),
                 soloCurrentMapName = current?.mapName ?: "-",
                 soloCurrentMapImageUrl = current?.mapImage,
-                soloNextMapName = next?.mapName ?: "TBD",
+                soloNextMapName = next?.mapName ?: prev.soloNextMapName ?: current?.mapName ?: "TBD",
                 updatedAt = System.currentTimeMillis()
             )
         )
     }
 
     private suspend fun requestOfficialRotationEvents(): List<RotationEvent> {
-        val service = officialApi ?: return emptyList()
-        val response = runCatching { service.getEventsRotation() }.getOrNull() ?: return emptyList()
+        val response = runCatching { proxyApi.getEventsRotation() }.getOrNull() ?: return emptyList()
         if (!response.isSuccessful) return emptyList()
 
         val items = response.body() ?: return emptyList()
@@ -270,96 +266,25 @@ class PlayerRepository(
         }
     }
 
-    private suspend fun requestBrawlifyGameModesBody(): JsonObject? {
-        val json = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = (URL("https://api.brawlapi.com/v1/gamemodes").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 15000
-                    readTimeout = 15000
-                    setRequestProperty("User-Agent", "Brawlify.com/app")
-                    setRequestProperty("Accept", "application/json")
-                }
-
-                connection.inputStream.bufferedReader().use { it.readText() }
-            }.getOrNull()
-        } ?: return null
-
-        val parsed = runCatching { JsonParser.parseString(json) }.getOrNull() ?: return null
-        return when {
-            parsed.isJsonObject -> parsed.asJsonObject
-            parsed.isJsonArray -> JsonObject().apply { add("list", parsed.asJsonArray) }
-            else -> null
-        }
+    private suspend fun requestGameModesBody(): JsonObject? {
+        val response = runCatching { proxyApi.getGameModes() }.getOrNull() ?: return null
+        if (!response.isSuccessful) return null
+        return response.body()
     }
 
-    private suspend fun requestPredictedFromBrawlify(mode: TrackingMode): ModeEvent? {
-        val html = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = (URL("https://brawlify.com/events").openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = 15000
-                    readTimeout = 15000
-                    setRequestProperty("User-Agent", "Mozilla/5.0 Brawlify.com/app")
-                    setRequestProperty("Accept", "text/html")
-                }
-
-                connection.inputStream.bufferedReader().use { it.readText() }
-            }.getOrNull()
-        } ?: return null
-
-        val text = html
-            .replace(Regex("<[^>]*>"), " ")
-            .replace("&nbsp;", " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        val predictedChunks = Regex("\\d{1,3}%\\s+PREDICTED\\s+(.+?)\\s+Est\\.", RegexOption.IGNORE_CASE)
-            .findAll(text)
-            .map { it.groupValues[1].trim() }
-            .toList()
-
-        for (chunk in predictedChunks) {
-            val candidate = parsePredictedChunk(chunk) ?: continue
-            if (mode.matches(candidate.modeName, candidate.modeHash, null)) {
-                return candidate
-            }
-        }
-
-        return null
-    }
-
-    private fun parsePredictedChunk(chunk: String): ModeEvent? {
-        val normalized = chunk.replace(Regex("\\s+"), " ").trim()
-        if (normalized.isBlank()) return null
-
-        val modeHints = listOf(
-            "TRIO SHOWDOWN" to "trio-showdown",
-            "DUO SHOWDOWN" to "duo-showdown",
-            "SOLO SHOWDOWN" to "solo-showdown",
-            "SHOWDOWN" to "showdown",
-            "GEM GRAB" to "gem-grab",
-            "BRAWL BALL" to "brawl-ball",
-            "KNOCKOUT" to "knockout",
-            "HEIST" to "heist",
-            "BOUNTY" to "bounty",
-            "HOT ZONE" to "hot-zone"
-        )
-
-        val upper = normalized.uppercase()
-        val match = modeHints.firstOrNull { (label, _) -> upper.endsWith(label) } ?: return null
-
-        val modeLabel = match.first
-        val modeHash = match.second
-        val mapName = normalized.substring(0, normalized.length - modeLabel.length).trim()
-        if (mapName.isBlank()) return null
+    private suspend fun requestPredictedMode(mode: TrackingMode): ModeEvent? {
+        val response = runCatching { proxyApi.getPredictedMode(mode.key) }.getOrNull() ?: return null
+        if (!response.isSuccessful) return null
+        val body = response.body() ?: return null
+        val mapName = body.getStr("mapName") ?: return null
+        val modeName = body.getStr("modeName") ?: return null
 
         return ModeEvent(
             mapName = mapName,
-            mapImage = null,
-            modeId = null,
-            modeName = modeLabel,
-            modeHash = modeHash
+            mapImage = body.getStr("mapImage"),
+            modeId = body.getInt("modeId"),
+            modeName = modeName,
+            modeHash = body.getStr("modeHash")
         )
     }
 
@@ -394,8 +319,8 @@ class PlayerRepository(
         return byToken?.getStr("imageUrl") ?: byToken?.getStr("imageUrl2")
     }
 
-    private suspend fun refreshSavedProfilePart(rawTag: String) {
-        val player = fetchAndCachePlayer(rawTag).getOrNull() ?: return
+    private suspend fun refreshSavedProfilePart(rawTag: String): Result<Unit> {
+        val player = fetchAndCachePlayer(rawTag).getOrElse { return Result.failure(it) }
         val iconUrl = profileIconUrl(player.profileIconId)
 
         val prev = widgetCacheDao.get() ?: emptyWidgetCache()
@@ -409,6 +334,7 @@ class PlayerRepository(
                 updatedAt = System.currentTimeMillis()
             )
         )
+        return Result.success(Unit)
     }
 
     fun profileIconUrl(iconId: Int?): String? {

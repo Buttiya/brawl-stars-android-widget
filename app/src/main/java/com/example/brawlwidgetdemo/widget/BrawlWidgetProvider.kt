@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.RemoteViews
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.example.brawlwidgetdemo.BrawlDemoApp
 import com.example.brawlwidgetdemo.MainActivity
@@ -40,7 +41,10 @@ class BrawlWidgetProvider : AppWidgetProvider() {
         runCatching {
             super.onReceive(context, intent)
             when (intent.action) {
-                ACTION_REFRESH, ACTION_AUTO_REFRESH -> enqueueRefresh(context)
+                ACTION_REFRESH, ACTION_AUTO_REFRESH -> {
+                    showRefreshingState(context)
+                    enqueueRefresh(context)
+                }
                 Intent.ACTION_BOOT_COMPLETED -> {
                     scheduleAutoRefresh(context)
                     enqueueRefresh(context)
@@ -57,10 +61,12 @@ class BrawlWidgetProvider : AppWidgetProvider() {
         private const val AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000L
 
         private fun enqueueRefresh(context: Context) {
-            val request = OneTimeWorkRequestBuilder<RefreshWidgetWorker>().build()
+            val request = OneTimeWorkRequestBuilder<RefreshWidgetWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
                 AUTO_REFRESH_WORK_NAME,
-                ExistingWorkPolicy.KEEP,
+                ExistingWorkPolicy.REPLACE,
                 request
             )
         }
@@ -98,6 +104,30 @@ class BrawlWidgetProvider : AppWidgetProvider() {
                 val manager = AppWidgetManager.getInstance(context)
                 val ids = manager.getAppWidgetIds(ComponentName(context, BrawlWidgetProvider::class.java))
                 updateWidgets(context, ids)
+            }
+        }
+
+        private fun showRefreshingState(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, BrawlWidgetProvider::class.java))
+            if (ids.isEmpty()) return
+
+            ids.forEach { id ->
+                val views = RemoteViews(context.packageName, R.layout.widget_brawl)
+                views.setTextViewText(R.id.widgetRefreshButton, "Refreshing...")
+                manager.partiallyUpdateAppWidget(id, views)
+            }
+        }
+
+        fun restoreRefreshState(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, BrawlWidgetProvider::class.java))
+            if (ids.isEmpty()) return
+
+            ids.forEach { id ->
+                val views = RemoteViews(context.packageName, R.layout.widget_brawl)
+                views.setTextViewText(R.id.widgetRefreshButton, "Refresh")
+                manager.partiallyUpdateAppWidget(id, views)
             }
         }
 

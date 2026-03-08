@@ -7,31 +7,30 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object NetworkFactory {
-    private const val OFFICIAL_BASE_URL = "https://api.brawlstars.com"
+    fun createProxyRetrofit(baseUrl: String, enableLogging: Boolean): Retrofit =
+        createRetrofit(baseUrl, enableLogging)
 
-    fun createOfficialRetrofit(token: String): Retrofit = createRetrofit(OFFICIAL_BASE_URL, token)
-
-    private fun createRetrofit(baseUrl: String, bearerToken: String?): Retrofit {
+    private fun createRetrofit(baseUrl: String, enableLogging: Boolean): Retrofit {
         val logger = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
 
-        val client = OkHttpClient.Builder()
+        val clientBuilder = OkHttpClient.Builder()
             .addInterceptor { chain ->
-                val builder = chain.request().newBuilder()
-                    .header("User-Agent", "BrawlWidgetDemo/0.2.1")
-
-                if (!bearerToken.isNullOrBlank()) {
-                    builder.header("Authorization", "Bearer $bearerToken")
-                }
-
-                chain.proceed(builder.build())
+                val request = chain.request().newBuilder()
+                    .header("User-Agent", "BrawlWidgetDemo/0.3.0")
+                    .build()
+                chain.proceed(request)
             }
-            .addInterceptor(logger)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
-            .build()
+
+        if (enableLogging) {
+            clientBuilder.addInterceptor(logger)
+        }
+
+        val client = clientBuilder.build()
 
         return Retrofit.Builder()
             .baseUrl(baseUrl)

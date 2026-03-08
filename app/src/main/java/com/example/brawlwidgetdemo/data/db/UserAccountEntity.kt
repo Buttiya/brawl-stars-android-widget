@@ -8,7 +8,7 @@ import androidx.room.PrimaryKey
 data class UserAccountEntity(
     @PrimaryKey val id: Int = 1,
     val username: String,
-    @ColumnInfo(name = "password_hash") val passwordHash: String,
+    @ColumnInfo(name = "session_token") val sessionToken: String?,
     @ColumnInfo(name = "is_logged_in") val isLoggedIn: Boolean,
     @ColumnInfo(name = "linked_player_tag") val linkedPlayerTag: String?,
     @ColumnInfo(name = "is_verified") val isVerified: Boolean,

@@ -13,16 +13,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,6 +50,13 @@ private enum class RootTab(
     Profile("Профиль")
 }
 
+private enum class AuthMenuMode {
+    Selection,
+    Login,
+    Register
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRootScreen(
     homeState: PlayerUiState,
@@ -67,11 +80,22 @@ fun AppRootScreen(
     onProfileRefreshPlayer: () -> Unit,
     onStartVerificationChallenge: () -> Unit,
     onDoneVerificationChallenge: () -> Unit,
-    profileIconUrl: (Int?) -> String?
+    profileIconUrl: (Int?) -> String?,
+    onOpenSettings: () -> Unit
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(RootTab.Home) }
 
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Brawl Demo") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Настройки")
+                    }
+                }
+            )
+        },
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
@@ -159,6 +183,13 @@ private fun ProfileScreen(
     profileIconUrl: (Int?) -> String?
 ) {
     val account = state.account
+    var authMenuMode by rememberSaveable { mutableStateOf(AuthMenuMode.Selection) }
+
+    LaunchedEffect(account?.isLoggedIn) {
+        if (account?.isLoggedIn == true) {
+            authMenuMode = AuthMenuMode.Selection
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -171,28 +202,93 @@ private fun ProfileScreen(
 
         when {
             account == null -> {
-                Text("Создай аккаунт для входа")
-                CredentialsFields(
-                    username = state.usernameInput,
-                    password = state.passwordInput,
-                    onUsernameChange = onUsernameChange,
-                    onPasswordChange = onPasswordChange
-                )
-                Button(onClick = onRegister, enabled = !state.isLoading) {
-                    Text("Зарегистрироваться")
+                Text("Войди или создай аккаунт")
+                when (authMenuMode) {
+                    AuthMenuMode.Selection -> {
+                        Button(onClick = { authMenuMode = AuthMenuMode.Login }, enabled = !state.isLoading) {
+                            Text("Войти")
+                        }
+                        Button(onClick = { authMenuMode = AuthMenuMode.Register }, enabled = !state.isLoading) {
+                            Text("Зарегистрироваться")
+                        }
+                    }
+
+                    AuthMenuMode.Login -> {
+                        CredentialsFields(
+                            username = state.usernameInput,
+                            password = state.passwordInput,
+                            onUsernameChange = onUsernameChange,
+                            onPasswordChange = onPasswordChange
+                        )
+                        Button(onClick = onLogin, enabled = !state.isLoading) {
+                            Text("Войти")
+                        }
+                        Button(onClick = { authMenuMode = AuthMenuMode.Selection }, enabled = !state.isLoading) {
+                            Text("Назад")
+                        }
+                    }
+
+                    AuthMenuMode.Register -> {
+                        CredentialsFields(
+                            username = state.usernameInput,
+                            password = state.passwordInput,
+                            onUsernameChange = onUsernameChange,
+                            onPasswordChange = onPasswordChange
+                        )
+                        Button(onClick = onRegister, enabled = !state.isLoading) {
+                            Text("Зарегистрироваться")
+                        }
+                        Button(onClick = { authMenuMode = AuthMenuMode.Selection }, enabled = !state.isLoading) {
+                            Text("Назад")
+                        }
+                    }
                 }
             }
 
             !account.isLoggedIn -> {
-                Text("Войди в аккаунт: ${account.username}")
-                CredentialsFields(
-                    username = state.usernameInput,
-                    password = state.passwordInput,
-                    onUsernameChange = onUsernameChange,
-                    onPasswordChange = onPasswordChange
-                )
-                Button(onClick = onLogin, enabled = !state.isLoading) {
-                    Text("Войти")
+                Text("Аккаунт: ${account.username}")
+                when (authMenuMode) {
+                    AuthMenuMode.Selection -> {
+                        Text("Выбери действие")
+                        Button(onClick = { authMenuMode = AuthMenuMode.Login }, enabled = !state.isLoading) {
+                            Text("Войти")
+                        }
+                        Button(onClick = { authMenuMode = AuthMenuMode.Register }, enabled = !state.isLoading) {
+                            Text("Зарегистрироваться")
+                        }
+                    }
+
+                    AuthMenuMode.Login -> {
+                        Text("Войди в аккаунт")
+                        CredentialsFields(
+                            username = state.usernameInput,
+                            password = state.passwordInput,
+                            onUsernameChange = onUsernameChange,
+                            onPasswordChange = onPasswordChange
+                        )
+                        Button(onClick = onLogin, enabled = !state.isLoading) {
+                            Text("Войти")
+                        }
+                        Button(onClick = { authMenuMode = AuthMenuMode.Selection }, enabled = !state.isLoading) {
+                            Text("Назад")
+                        }
+                    }
+
+                    AuthMenuMode.Register -> {
+                        Text("Или создай другой аккаунт")
+                        CredentialsFields(
+                            username = state.usernameInput,
+                            password = state.passwordInput,
+                            onUsernameChange = onUsernameChange,
+                            onPasswordChange = onPasswordChange
+                        )
+                        Button(onClick = onRegister, enabled = !state.isLoading) {
+                            Text("Зарегистрироваться")
+                        }
+                        Button(onClick = { authMenuMode = AuthMenuMode.Selection }, enabled = !state.isLoading) {
+                            Text("Назад")
+                        }
+                    }
                 }
             }
 
@@ -226,11 +322,13 @@ private fun ProfileScreen(
                     Text("Обновить данные")
                 }
 
-                VerificationChallengeCard(
-                    state = state,
-                    onStartVerificationChallenge = onStartVerificationChallenge,
-                    onDoneVerificationChallenge = onDoneVerificationChallenge
-                )
+                if (!account.isVerified) {
+                    VerificationChallengeCard(
+                        state = state,
+                        onStartVerificationChallenge = onStartVerificationChallenge,
+                        onDoneVerificationChallenge = onDoneVerificationChallenge
+                    )
+                }
 
                 ProfilePlayerCard(
                     player = state.player,

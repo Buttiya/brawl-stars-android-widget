@@ -13,7 +13,7 @@ class RefreshWidgetWorker(
     override suspend fun doWork(): Result {
         val app = applicationContext as BrawlDemoApp
 
-        return runCatching {
+        val result = runCatching {
             app.playerRepository.refreshWidgetData()
             val cache = app.playerRepository.getWidgetCache()
             WidgetAssetStore.saveProfileIcon(applicationContext, cache?.savedPlayerIconUrl)
@@ -23,5 +23,8 @@ class RefreshWidgetWorker(
             onSuccess = { Result.success() },
             onFailure = { Result.retry() }
         )
+
+        BrawlWidgetProvider.restoreRefreshState(applicationContext)
+        return result
     }
 }

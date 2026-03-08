@@ -15,6 +15,14 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+window_dump.xml
 
 # Local Gradle home for sandboxed builds
 .gradle-user-home/
+
+# Local backend used to proxy mobile API requests
+local-server/
+
+# Signing keys
+*.jks
+*.keystore

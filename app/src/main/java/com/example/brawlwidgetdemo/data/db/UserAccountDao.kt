@@ -11,6 +11,9 @@ interface UserAccountDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(account: UserAccountEntity)
 
+    @Query("DELETE FROM user_account")
+    suspend fun clear()
+
     @Query("SELECT * FROM user_account WHERE id = 1")
     fun observe(): Flow<UserAccountEntity?>
 

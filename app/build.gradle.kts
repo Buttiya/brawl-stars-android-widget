@@ -17,12 +17,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val brawlStarsApiToken = ((project.findProperty("BRAWL_STARS_API_TOKEN") as String?)
-            ?: System.getenv("BRAWL_STARS_API_TOKEN"))
-            ?.trim()
-            ?.replace("\"", "\\\"")
-            ?: ""
-        buildConfigField("String", "BRAWL_STARS_API_TOKEN", "\"$brawlStarsApiToken\"")
+        val brawlProxyBaseUrl = ""
+        buildConfigField("String", "BRAWL_PROXY_BASE_URL", "\"$brawlProxyBaseUrl\"")
     }
 
     buildTypes {
@@ -83,6 +79,7 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
