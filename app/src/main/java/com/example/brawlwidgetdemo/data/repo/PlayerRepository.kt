@@ -219,22 +219,9 @@ class PlayerRepository(
 
     private suspend fun refreshTrackedModePart() {
         val selectedMode = getTrackedMode()
-        val rotation = requestOfficialRotationEvents()
-
-        val now = Instant.now()
-        val current = rotation
-            .filter { event -> event.start <= now && event.end > now }
-            .firstOrNull { event -> selectedMode.matches(event.modeEvent.modeName, event.modeEvent.modeHash, event.slotId) }
-            ?.modeEvent
-
-        val nextFromOfficial = rotation
-            .filter { event -> event.start > now }
-            .sortedBy { event -> event.start }
-            .firstOrNull { event -> selectedMode.matches(event.modeEvent.modeName, event.modeEvent.modeHash, event.slotId) }
-            ?.modeEvent
-
-        val next = nextFromOfficial ?: requestPredictedMode(selectedMode)
-        val modeIcons = requestGameModesBody()
+        val trackedMap = requestTrackedMap(selectedMode)
+        val current = trackedMap?.current
+        val next = trackedMap?.next
 
         val prev = widgetCacheDao.get() ?: emptyWidgetCache()
         widgetCacheDao.upsert(
@@ -242,9 +229,9 @@ class PlayerRepository(
                 trackedModeKey = selectedMode.key,
                 trackedModeLabel = selectedMode.label,
                 trackedCurrentModeName = current?.modeName ?: selectedMode.label,
-                trackedCurrentModeIconUrl = resolveModeIconUrl(modeIcons, current),
+                trackedCurrentModeIconUrl = current?.modeIconUrl,
                 trackedNextModeName = next?.modeName ?: current?.modeName ?: selectedMode.label,
-                trackedNextModeIconUrl = resolveModeIconUrl(modeIcons, next),
+                trackedNextModeIconUrl = next?.modeIconUrl,
                 soloCurrentMapName = current?.mapName ?: "-",
                 soloCurrentMapImageUrl = current?.mapImage,
                 soloNextMapName = next?.mapName ?: current?.mapName ?: "TBD",
@@ -253,86 +240,14 @@ class PlayerRepository(
         )
     }
 
-    private suspend fun requestOfficialRotationEvents(): List<RotationEvent> {
-        val response = runCatching { api.getEventsRotation() }.getOrNull() ?: return emptyList()
-        if (!response.isSuccessful) return emptyList()
-
-        val items = response.body() ?: return emptyList()
-        return items.mapNotNull { raw ->
-            val root = raw.asObj() ?: return@mapNotNull null
-            val event = root.getObj("event") ?: return@mapNotNull null
-
-            val start = parseOfficialTime(root.getStr("startTime")) ?: return@mapNotNull null
-            val end = parseOfficialTime(root.getStr("endTime")) ?: return@mapNotNull null
-            val mapName = event.getStr("map") ?: return@mapNotNull null
-            val mode = event.getStr("mode")
-
-            RotationEvent(
-                slotId = root.getInt("slotId"),
-                modeEvent = ModeEvent(
-                    mapName = mapName,
-                    mapImage = null,
-                    modeId = event.getInt("modeId"),
-                    modeName = mode ?: selectedLabelForUnknownMode(root.getInt("slotId")),
-                    modeHash = mode
-                ),
-                start = start,
-                end = end
-            )
-        }
-    }
-
-    private suspend fun requestGameModesBody(): JsonObject? {
-        val response = runCatching { api.getGameModes() }.getOrNull() ?: return null
-        if (!response.isSuccessful) return null
-        return response.body()
-    }
-
-    private suspend fun requestPredictedMode(mode: TrackingMode): ModeEvent? {
-        val response = runCatching { api.getPredictedMode(mode.key) }.getOrNull() ?: return null
+    private suspend fun requestTrackedMap(mode: TrackingMode): TrackedModePayload? {
+        val response = runCatching { api.getTrackedMap(mode.key) }.getOrNull() ?: return null
         if (!response.isSuccessful) return null
         val body = response.body() ?: return null
-        val mapName = body.getStr("mapName") ?: return null
-        val modeName = body.getStr("modeName") ?: return null
-
-        return ModeEvent(
-            mapName = mapName,
-            mapImage = body.getStr("mapImage"),
-            modeId = body.getInt("modeId"),
-            modeName = modeName,
-            modeHash = body.getStr("modeHash")
+        return TrackedModePayload(
+            current = body.getObj("current")?.toModeEvent(),
+            next = body.getObj("next")?.toModeEvent()
         )
-    }
-
-    private fun resolveModeIconUrl(gameModesBody: JsonObject?, event: ModeEvent?): String? {
-        if (event == null || gameModesBody == null) return null
-
-        val modes = gameModesBody.getArr("list")
-            ?: gameModesBody.getArr("items")
-            ?: gameModesBody.getArr("gamemodes")
-            ?: return null
-
-        val byId = event.modeId?.let { id ->
-            modes.firstOrNull { raw -> raw.asObj()?.getInt("id") == id }?.asObj()
-        }
-
-        if (byId != null) {
-            return byId.getStr("imageUrl") ?: byId.getStr("imageUrl2")
-        }
-
-        val desiredTokens = listOfNotNull(event.modeHash, event.modeName)
-            .map(::normalizeModeToken)
-            .toSet()
-
-        val byToken = modes.firstOrNull { raw ->
-            val obj = raw.asObj() ?: return@firstOrNull false
-            val candidateTokens = listOfNotNull(obj.getStr("hash"), obj.getStr("name"))
-                .map(::normalizeModeToken)
-                .toSet()
-            candidateTokens.any { token -> desiredTokens.any { desired -> token.contains(desired) || desired.contains(token) } }
-        }?.asObj()
-
-        return byToken?.getStr("imageUrl") ?: byToken?.getStr("imageUrl2")
     }
 
     private suspend fun refreshSavedProfilePart(rawTag: String): Result<Unit> {
@@ -445,7 +360,8 @@ data class ModeEvent(
     val mapImage: String?,
     val modeId: Int?,
     val modeName: String,
-    val modeHash: String?
+    val modeHash: String?,
+    val modeIconUrl: String? = null
 )
 
 data class RotationEvent(
@@ -453,6 +369,11 @@ data class RotationEvent(
     val modeEvent: ModeEvent,
     val start: Instant,
     val end: Instant
+)
+
+data class TrackedModePayload(
+    val current: ModeEvent?,
+    val next: ModeEvent?
 )
 
 private val OFFICIAL_TIME_FORMATTER: DateTimeFormatter =
@@ -474,6 +395,19 @@ private fun selectedLabelForUnknownMode(slotId: Int?): String {
 
 private fun normalizeModeToken(value: String): String {
     return value.lowercase().replace(Regex("[^a-z0-9]"), "")
+}
+
+private fun JsonObject.toModeEvent(): ModeEvent? {
+    val mapName = getStr("mapName") ?: return null
+    val modeName = getStr("modeName") ?: return null
+    return ModeEvent(
+        mapName = mapName,
+        mapImage = getStr("mapImage"),
+        modeId = getInt("modeId"),
+        modeName = modeName,
+        modeHash = getStr("modeHash"),
+        modeIconUrl = getStr("modeIconUrl")
+    )
 }
 
 private fun JsonObject.getObj(key: String): JsonObject? {

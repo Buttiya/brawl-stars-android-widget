@@ -20,6 +20,9 @@ interface AppApiService {
     @GET("/api/gamemodes")
     suspend fun getGameModes(): Response<JsonObject>
 
+    @GET("/api/maps/tracked/{modeKey}")
+    suspend fun getTrackedMap(@Path("modeKey") modeKey: String): Response<JsonObject>
+
     @GET("/api/predictions/{modeKey}")
     suspend fun getPredictedMode(@Path("modeKey") modeKey: String): Response<JsonObject>
 
