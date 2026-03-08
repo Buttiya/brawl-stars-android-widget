@@ -45,10 +45,6 @@ class BrawlDemoApp : Application() {
     fun getSavedProxyBaseUrl(): String {
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val saved = prefs.getString(KEY_PROXY_BASE_URL, defaultProxyBaseUrl()).orEmpty()
-        if (saved == LEGACY_DEFAULT_PROXY_BASE_URL) {
-            prefs.edit().remove(KEY_PROXY_BASE_URL).apply()
-            return ""
-        }
         return saved.takeIf { it.isNotBlank() } ?: defaultProxyBaseUrl()
     }
 
@@ -107,7 +103,6 @@ class BrawlDemoApp : Application() {
         const val PREFS_NAME = "app_runtime_config"
         const val KEY_PROXY_BASE_URL = "proxy_base_url"
         const val KEY_DARK_THEME = "dark_theme"
-        const val LEGACY_DEFAULT_PROXY_BASE_URL = "http://192.168.0.111:8787/"
     }
 
     private fun defaultProxyBaseUrl(): String {
