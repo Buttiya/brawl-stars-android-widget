@@ -168,6 +168,13 @@ class PlayerRepository(
             prev.copy(
                 trackedModeKey = mode.key,
                 trackedModeLabel = mode.label,
+                trackedCurrentModeName = mode.label,
+                trackedCurrentModeIconUrl = null,
+                trackedNextModeName = mode.label,
+                trackedNextModeIconUrl = null,
+                soloCurrentMapName = "-",
+                soloCurrentMapImageUrl = null,
+                soloNextMapName = "TBD",
                 updatedAt = System.currentTimeMillis()
             )
         )
@@ -236,11 +243,11 @@ class PlayerRepository(
                 trackedModeLabel = selectedMode.label,
                 trackedCurrentModeName = current?.modeName ?: selectedMode.label,
                 trackedCurrentModeIconUrl = resolveModeIconUrl(modeIcons, current),
-                trackedNextModeName = next?.modeName ?: prev.trackedNextModeName ?: current?.modeName ?: selectedMode.label,
+                trackedNextModeName = next?.modeName ?: current?.modeName ?: selectedMode.label,
                 trackedNextModeIconUrl = resolveModeIconUrl(modeIcons, next),
                 soloCurrentMapName = current?.mapName ?: "-",
                 soloCurrentMapImageUrl = current?.mapImage,
-                soloNextMapName = next?.mapName ?: prev.soloNextMapName ?: current?.mapName ?: "TBD",
+                soloNextMapName = next?.mapName ?: current?.mapName ?: "TBD",
                 updatedAt = System.currentTimeMillis()
             )
         )
