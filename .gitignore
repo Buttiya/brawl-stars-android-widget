@@ -22,6 +22,8 @@ window_dump.xml
 
 # Local API helpers
 local-*/
+!local-server/
+local-server/.git/
 
 # Signing keys
 *.jks
