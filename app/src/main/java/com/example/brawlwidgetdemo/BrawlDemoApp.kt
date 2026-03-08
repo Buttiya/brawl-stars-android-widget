@@ -9,6 +9,7 @@ import com.example.brawlwidgetdemo.data.network.ProxyApiService
 import com.example.brawlwidgetdemo.data.repo.AuthRepository
 import com.example.brawlwidgetdemo.data.repo.PlayerRepository
 import com.example.brawlwidgetdemo.data.repo.SessionTokenStore
+import com.example.brawlwidgetdemo.widget.DailyTrophyHistoryWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,6 +59,16 @@ class BrawlDemoApp : Application() {
         initializeRepositories(normalized)
     }
 
+    fun isDarkThemeEnabled(): Boolean {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_DARK_THEME, false)
+    }
+
+    fun setDarkThemeEnabled(enabled: Boolean) {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_DARK_THEME, enabled).apply()
+    }
+
     private fun initializeRepositories(proxyBaseUrl: String) {
         val proxyApi = NetworkFactory.createProxyRetrofit(
             baseUrl = proxyBaseUrl,
@@ -69,6 +80,7 @@ class BrawlDemoApp : Application() {
             proxyApi = proxyApi,
             playerDao = db.playerDao(),
             snapshotDao = db.snapshotDao(),
+            dailyTrophyHistoryDao = db.dailyTrophyHistoryDao(),
             favoriteDao = db.favoriteDao(),
             widgetCacheDao = db.widgetCacheDao()
         )
@@ -82,6 +94,8 @@ class BrawlDemoApp : Application() {
         appScope.launch {
             authRepository.syncSession()
         }
+
+        DailyTrophyHistoryWorker.schedule(applicationContext)
     }
 
     private fun normalizeProxyBaseUrl(rawUrl: String): String {
@@ -92,6 +106,7 @@ class BrawlDemoApp : Application() {
     private companion object {
         const val PREFS_NAME = "app_runtime_config"
         const val KEY_PROXY_BASE_URL = "proxy_base_url"
+        const val KEY_DARK_THEME = "dark_theme"
         const val LEGACY_DEFAULT_PROXY_BASE_URL = "http://192.168.0.111:8787/"
     }
 

@@ -21,7 +21,17 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import kotlin.random.Random
+
+data class DailyTrophyPointUi(
+    val epochDay: Long,
+    val trophies: Int,
+    val delta: Int,
+    val label: String
+)
 
 data class VerificationChallenge(
     val expectedIconId: Int,
@@ -37,6 +47,7 @@ data class ProfileUiState(
     val usernameInput: String = "",
     val passwordInput: String = "",
     val tagInput: String = "",
+    val trophyHistory: List<DailyTrophyPointUi> = emptyList(),
     val challenge: VerificationChallenge? = null,
     val challengeSecondsLeft: Long = 0,
     val isLoading: Boolean = false,
@@ -49,7 +60,8 @@ private data class ProfileCoreState(
     val player: PlayerEntity?,
     val usernameInput: String,
     val passwordInput: String,
-    val tagInput: String
+    val tagInput: String,
+    val trophyHistory: List<DailyTrophyPointUi>
 )
 
 private data class ProfileDynamicState(
@@ -107,6 +119,25 @@ class ProfileViewModel(
     }
 
     private val accountFlow = authRepository.observeAccount()
+    private val linkedPlayerFlow: Flow<PlayerEntity?> = accountFlow.flatMapLatest { account ->
+        val linkedTag = account?.linkedPlayerTag
+        if (linkedTag.isNullOrBlank()) {
+            flowOf(null)
+        } else {
+            playerRepository.observePlayer(linkedTag)
+        }
+    }
+    private val linkedTrophyHistoryFlow = accountFlow.flatMapLatest { account ->
+        val linkedTag = account?.linkedPlayerTag
+        if (linkedTag.isNullOrBlank()) {
+            flowOf(emptyList())
+        } else {
+            playerRepository.observeDailyTrophyHistory(linkedTag)
+        }
+    }
+    private val credentialsFlow = combine(usernameInput, passwordInput, tagInput) { username, password, tag ->
+        Triple(username, password, tag)
+    }
 
     init {
         viewModelScope.launch {
@@ -124,24 +155,25 @@ class ProfileViewModel(
 
     private val coreState = combine(
         accountFlow,
-        accountFlow.flatMapLatest { account ->
-            val linkedTag = account?.linkedPlayerTag
-            if (linkedTag.isNullOrBlank()) {
-                flowOf(null)
-            } else {
-                playerRepository.observePlayer(linkedTag)
-            }
-        },
-        usernameInput,
-        passwordInput,
-        tagInput
-    ) { account, player, username, password, tag ->
+        linkedPlayerFlow,
+        linkedTrophyHistoryFlow,
+        credentialsFlow
+    ) { account, player, trophyHistory, credentials ->
+        val (username, password, tag) = credentials
         ProfileCoreState(
             account = account,
             player = player,
             usernameInput = username,
             passwordInput = password,
-            tagInput = if (tag.isBlank()) account?.linkedPlayerTag ?: "" else tag
+            tagInput = if (tag.isBlank()) account?.linkedPlayerTag ?: "" else tag,
+            trophyHistory = trophyHistory.map { entry ->
+                DailyTrophyPointUi(
+                    epochDay = entry.recordDate,
+                    trophies = entry.trophies,
+                    delta = entry.dailyDelta,
+                    label = LocalDate.ofEpochDay(entry.recordDate).format(HISTORY_LABEL_FORMATTER)
+                )
+            }
         )
     }
 
@@ -169,6 +201,7 @@ class ProfileViewModel(
             usernameInput = core.usernameInput,
             passwordInput = core.passwordInput,
             tagInput = core.tagInput,
+            trophyHistory = core.trophyHistory,
             challenge = dynamic.challenge,
             challengeSecondsLeft = dynamic.challengeSecondsLeft,
             isLoading = dynamic.isLoading,
@@ -380,6 +413,8 @@ class ProfileViewModel(
         private const val CHALLENGE_TTL_MS = 5 * 60 * 1000L
     }
 }
+
+private val HISTORY_LABEL_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM")
 
 class ProfileViewModelFactory(
     private val authRepository: AuthRepository,

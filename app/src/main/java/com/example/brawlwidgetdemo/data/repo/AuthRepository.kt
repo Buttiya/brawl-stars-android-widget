@@ -19,6 +19,8 @@ class AuthRepository(
 ) {
     fun observeAccount(): Flow<UserAccountEntity?> = userAccountDao.observe()
 
+    suspend fun getCurrentAccount(): UserAccountEntity? = userAccountDao.get()
+
     suspend fun syncSession() {
         val local = userAccountDao.get() ?: return
         val token = readPersistedSessionToken(local) ?: return

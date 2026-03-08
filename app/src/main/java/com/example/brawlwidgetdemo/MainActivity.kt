@@ -8,18 +8,22 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.brawlwidgetdemo.ui.AppRootScreen
+import com.example.brawlwidgetdemo.ui.AppTheme
 import com.example.brawlwidgetdemo.ui.PlayerViewModel
 import com.example.brawlwidgetdemo.ui.PlayerViewModelFactory
 import com.example.brawlwidgetdemo.ui.ProfileViewModel
@@ -33,93 +37,137 @@ class MainActivity : ComponentActivity() {
         setContent {
             val app = LocalContext.current.applicationContext as BrawlDemoApp
             var showServerDialog by rememberSaveable { mutableStateOf(app.getSavedProxyBaseUrl().isBlank()) }
+            var showThemeDialog by rememberSaveable { mutableStateOf(false) }
             var serverUrlInput by rememberSaveable { mutableStateOf(app.getSavedProxyBaseUrl()) }
+            var isDarkTheme by rememberSaveable { mutableStateOf(app.isDarkThemeEnabled()) }
             var repositoriesVersion by remember { mutableStateOf(0) }
 
             LaunchedEffect(Unit) {
                 serverUrlInput = app.getSavedProxyBaseUrl()
             }
 
-            if (showServerDialog) {
-                AlertDialog(
-                    onDismissRequest = {
-                        if (app.getSavedProxyBaseUrl().isNotBlank()) {
-                            showServerDialog = false
-                        }
-                    },
-                    title = { Text("Адрес сервера") },
-                    text = {
-                        OutlinedTextField(
-                            value = serverUrlInput,
-                            onValueChange = { serverUrlInput = it },
-                            label = { Text("Например http://server-address:8787/") },
-                            singleLine = true
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            enabled = serverUrlInput.isNotBlank(),
-                            onClick = {
-                                app.saveAndApplyProxyBaseUrl(serverUrlInput)
-                                repositoriesVersion += 1
-                                showServerDialog = false
+            AppTheme(darkTheme = isDarkTheme) {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    if (showServerDialog) {
+                        AlertDialog(
+                            onDismissRequest = {
+                                if (app.getSavedProxyBaseUrl().isNotBlank()) {
+                                    showServerDialog = false
+                                }
+                            },
+                            title = { Text("Адрес сервера") },
+                            text = {
+                                OutlinedTextField(
+                                    value = serverUrlInput,
+                                    onValueChange = { serverUrlInput = it },
+                                    label = { Text("Например http://server-address:8787/") },
+                                    singleLine = true
+                                )
+                            },
+                            confirmButton = {
+                                Button(
+                                    enabled = serverUrlInput.isNotBlank(),
+                                    onClick = {
+                                        app.saveAndApplyProxyBaseUrl(serverUrlInput)
+                                        repositoriesVersion += 1
+                                        showServerDialog = false
+                                    }
+                                ) {
+                                    Text("Сохранить")
+                                }
                             }
-                        ) {
-                            Text("Сохранить")
-                        }
+                        )
                     }
-                )
-                return@setContent
-            }
 
-            val homeVm: PlayerViewModel = viewModel(
-                key = "home-$repositoriesVersion",
-                factory = PlayerViewModelFactory(app.playerRepository)
-            )
-            val profileVm: ProfileViewModel = viewModel(
-                key = "profile-$repositoriesVersion",
-                factory = ProfileViewModelFactory(app.authRepository, app.playerRepository)
-            )
+                    if (showThemeDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showThemeDialog = false },
+                            title = { Text("Тема") },
+                            text = {
+                                Text(if (isDarkTheme) "Сейчас выбрана тёмная тема." else "Сейчас выбрана светлая тема.")
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        isDarkTheme = false
+                                        app.setDarkThemeEnabled(false)
+                                        showThemeDialog = false
+                                    }
+                                ) {
+                                    Text("Светлая")
+                                }
+                            },
+                            dismissButton = {
+                                Button(
+                                    onClick = {
+                                        isDarkTheme = true
+                                        app.setDarkThemeEnabled(true)
+                                        showThemeDialog = false
+                                    }
+                                ) {
+                                    Text("Тёмная")
+                                }
+                            }
+                        )
+                    }
 
-            val homeState by homeVm.uiState.collectAsStateWithLifecycle()
-            val profileState by profileVm.uiState.collectAsStateWithLifecycle()
+                    if (showServerDialog) {
+                        return@CompositionLocalProvider
+                    }
 
-            AppRootScreen(
-                homeState = homeState,
-                profileState = profileState,
-                onHomeTagChange = homeVm::onTagChange,
-                onHomeSearchClick = homeVm::search,
-                onHomeToggleFavorite = homeVm::toggleFavorite,
-                onHomeSaveForWidget = {
-                    homeVm.saveSelectedProfileForWidget()
-                    enqueueWidgetRefresh()
-                },
-                onHomeRefreshWidget = {
-                    enqueueWidgetRefresh()
-                },
-                onHomeSelectTrackingMode = {
-                    homeVm.selectTrackingMode(it)
-                    enqueueWidgetRefresh()
-                },
-                onHomeTabSelect = homeVm::setTab,
-                onHomeRefreshFavorites = homeVm::refreshFavorites,
-                onHomeSelectFavorite = homeVm::loadFavorite,
-                onProfileUsernameChange = profileVm::onUsernameChange,
-                onProfilePasswordChange = profileVm::onPasswordChange,
-                onProfileTagChange = profileVm::onTagChange,
-                onProfileRegister = profileVm::register,
-                onProfileLogin = profileVm::login,
-                onProfileLogout = profileVm::logout,
-                onProfileLinkTag = profileVm::linkTag,
-                onProfileRefreshPlayer = profileVm::refreshLinkedProfile,
-                onStartVerificationChallenge = profileVm::startVerificationChallenge,
-                onDoneVerificationChallenge = profileVm::completeVerificationChallenge,
-                profileIconUrl = app.playerRepository::profileIconUrl,
-                onOpenSettings = {
-                    serverUrlInput = app.getSavedProxyBaseUrl()
-                    showServerDialog = true
+                    val homeVm: PlayerViewModel = viewModel(
+                        key = "home-$repositoriesVersion",
+                        factory = PlayerViewModelFactory(app.playerRepository)
+                    )
+                    val profileVm: ProfileViewModel = viewModel(
+                        key = "profile-$repositoriesVersion",
+                        factory = ProfileViewModelFactory(app.authRepository, app.playerRepository)
+                    )
+
+                    val homeState by homeVm.uiState.collectAsStateWithLifecycle()
+                    val profileState by profileVm.uiState.collectAsStateWithLifecycle()
+
+                    AppRootScreen(
+                        homeState = homeState,
+                        profileState = profileState,
+                        onHomeTagChange = homeVm::onTagChange,
+                        onHomeSearchClick = homeVm::search,
+                        onHomeToggleFavorite = homeVm::toggleFavorite,
+                        onHomeSaveForWidget = {
+                            homeVm.saveSelectedProfileForWidget()
+                            enqueueWidgetRefresh()
+                        },
+                        onHomeRefreshWidget = {
+                            enqueueWidgetRefresh()
+                        },
+                        onHomeSelectTrackingMode = {
+                            homeVm.selectTrackingMode(it)
+                            enqueueWidgetRefresh()
+                        },
+                        onHomeTabSelect = homeVm::setTab,
+                        onHomeRefreshFavorites = homeVm::refreshFavorites,
+                        onHomeSelectFavorite = homeVm::loadFavorite,
+                        onProfileUsernameChange = profileVm::onUsernameChange,
+                        onProfilePasswordChange = profileVm::onPasswordChange,
+                        onProfileTagChange = profileVm::onTagChange,
+                        onProfileRegister = profileVm::register,
+                        onProfileLogin = profileVm::login,
+                        onProfileLogout = profileVm::logout,
+                        onProfileLinkTag = profileVm::linkTag,
+                        onProfileRefreshPlayer = profileVm::refreshLinkedProfile,
+                        onStartVerificationChallenge = profileVm::startVerificationChallenge,
+                        onDoneVerificationChallenge = profileVm::completeVerificationChallenge,
+                        profileIconUrl = app.playerRepository::profileIconUrl,
+                        onOpenThemeSettings = {
+                            showThemeDialog = true
+                        },
+                        onOpenServerSettings = {
+                            serverUrlInput = app.getSavedProxyBaseUrl()
+                            showServerDialog = true
+                        }
+                    )
                 }
-            )
+            }
         }
     }
 

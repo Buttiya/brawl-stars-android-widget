@@ -1,5 +1,7 @@
 package com.example.brawlwidgetdemo.data.repo
 
+import com.example.brawlwidgetdemo.data.db.DailyTrophyHistoryDao
+import com.example.brawlwidgetdemo.data.db.DailyTrophyHistoryEntity
 import com.example.brawlwidgetdemo.data.db.FavoriteDao
 import com.example.brawlwidgetdemo.data.db.FavoriteEntity
 import com.example.brawlwidgetdemo.data.db.PlayerDao
@@ -17,6 +19,8 @@ import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.Flow
 import java.io.IOException
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -86,10 +90,14 @@ class PlayerRepository(
     private val proxyApi: ProxyApiService,
     private val playerDao: PlayerDao,
     private val snapshotDao: SnapshotDao,
+    private val dailyTrophyHistoryDao: DailyTrophyHistoryDao,
     private val favoriteDao: FavoriteDao,
     private val widgetCacheDao: WidgetCacheDao
 ) {
     fun observePlayer(tag: String): Flow<PlayerEntity?> = playerDao.observeByTag(tag)
+
+    fun observeDailyTrophyHistory(tag: String): Flow<List<DailyTrophyHistoryEntity>> =
+        dailyTrophyHistoryDao.observeByTag(tag)
 
     fun observeFavoritePlayers(): Flow<List<PlayerEntity>> = playerDao.observeFavorites()
 
@@ -187,6 +195,7 @@ class PlayerRepository(
         if (player != null) {
             playerDao.upsert(player)
             insertSnapshotIfChanged(player)
+            upsertDailyTrophyHistory(player)
             return Result.success(player)
         }
 
@@ -359,6 +368,26 @@ class PlayerRepository(
         }
     }
 
+    private suspend fun upsertDailyTrophyHistory(player: PlayerEntity) {
+        val trophies = player.trophies ?: return
+        val now = System.currentTimeMillis()
+        val today = LocalDate.now(HISTORY_ZONE_ID).toEpochDay()
+        val existing = dailyTrophyHistoryDao.getByTagAndDate(player.tag, today)
+        val previous = dailyTrophyHistoryDao.getPreviousBefore(player.tag, today)
+        val dailyDelta = trophies - (previous?.trophies ?: trophies)
+
+        dailyTrophyHistoryDao.upsert(
+            DailyTrophyHistoryEntity(
+                id = existing?.id ?: 0,
+                playerTag = player.tag,
+                recordDate = today,
+                trophies = trophies,
+                dailyDelta = dailyDelta,
+                capturedAt = now
+            )
+        )
+    }
+
     private suspend fun getTrackedMode(): TrackingMode {
         val key = widgetCacheDao.get()?.trackedModeKey
         return TrackingMode.fromKey(key)
@@ -421,6 +450,8 @@ data class RotationEvent(
 
 private val OFFICIAL_TIME_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX").withZone(ZoneOffset.UTC)
+
+private val HISTORY_ZONE_ID: ZoneId = ZoneId.systemDefault()
 
 private fun parseOfficialTime(value: String?): Instant? {
     if (value.isNullOrBlank()) return null
