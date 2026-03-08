@@ -106,7 +106,7 @@ class BrawlDemoApp : Application() {
     }
 
     private fun defaultApiBaseUrl(): String {
-        return if (BuildConfig.DEBUG) "" else BuildConfig.BRAWL_API_BASE_URL
+        return BuildConfig.BRAWL_API_BASE_URL
     }
 }
 

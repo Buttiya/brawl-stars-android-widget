@@ -17,7 +17,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val brawlApiBaseUrl = ""
+        val brawlApiBaseUrl = "https://local-server-production-0c63.up.railway.app/"
         buildConfigField("String", "BRAWL_API_BASE_URL", "\"$brawlApiBaseUrl\"")
     }
 
